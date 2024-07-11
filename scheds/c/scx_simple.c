@@ -21,6 +21,7 @@ const char help_fmt[] =
 "\n"
 "  -f            Use FIFO scheduling instead of weighted vtime scheduling\n"
 "  -v            Print libbpf debug messages\n"
+"  -p			 Run the scheduler in partial mode\n"
 "  -h            Display this help and exit\n";
 
 static bool verbose;
@@ -71,13 +72,16 @@ int main(int argc, char **argv)
 restart:
 	skel = SCX_OPS_OPEN(simple_ops, scx_simple);
 
-	while ((opt = getopt(argc, argv, "fvh")) != -1) {
+	while ((opt = getopt(argc, argv, "fvhp")) != -1) {
 		switch (opt) {
 		case 'f':
 			skel->rodata->fifo_sched = true;
 			break;
 		case 'v':
 			verbose = true;
+			break;
+		case 'p':
+			skel->struct_ops.simple_ops->flags |= SCX_OPS_SWITCH_PARTIAL;
 			break;
 		default:
 			fprintf(stderr, help_fmt, basename(argv[0]));
