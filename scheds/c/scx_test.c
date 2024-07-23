@@ -13,11 +13,13 @@
 #include "scx_test.bpf.skel.h"
 
 const char help_fmt[] =
-"A simple sched_ext scheduler.\n"
+"A simple scheduler used for user-space function calls and overhead measurement.\n"
+"The purpose is to figure out the feasibility of implementing an ML interface that\n"
+"invokes user-space functions for inferences.\n"
 "\n"
-"See the top-level comment in .bpf.c for more details.\n"
+"The scheduling policy behind the testing purpose is simple weighted vtime.\n"
 "\n"
-"Usage: %s [-f] [-v]\n"
+"Usage: %s [-f] [-v] [-p]\n"
 "\n"
 "  -f            Use FIFO scheduling instead of weighted vtime scheduling\n"
 "  -v            Print libbpf debug messages\n"

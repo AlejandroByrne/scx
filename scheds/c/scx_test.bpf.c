@@ -25,8 +25,21 @@
 char _license[] SEC("license") = "GPL";
 
 const volatile bool fifo_sched;
+const volatile s32 userspace_pid;
+
+volatile u64 nr_userspace_calls, nr_userspace_finishes;
+
+/* BPF ringbuffer map */
+struct {
+	__uint(type, BPF_MAP_TYPE_RINGBUF);
+	__uint(max_entries, 4096 /* 4KB, kernel page size */)
+} rb SEC(".maps");
 
 static u64 vtime_now;
+
+/* Used for measuring when 1 second has passed*/
+static u64 time_prev;
+
 UEI_DEFINE(uei);
 
 /*
@@ -44,6 +57,32 @@ struct {
 	__uint(value_size, sizeof(u64));
 	__uint(max_entries, 2);			/* [local, global] */
 } stats SEC(".maps");
+
+static struct task_struct *userspace_task(void)
+{
+	struct task_struct *p;
+
+	p = bpf_task_from_pid(userspace_pid);
+	/*
+	 * Should never happen -- the usersched task should always be managed
+	 * by sched_ext.
+	 */
+	if (!p)
+		scx_bpf_error("Failed to find userspace task %d", usersched_pid);
+
+	return p;
+}
+
+static void dispatch_user_task(void)
+{
+	struct task_struct *p;
+
+	p = userspace_task();
+	if (p) {
+		scx_bpf_dispatch(p, SCX_DSQ_GLOBAL, SCX_SLICE_DFL, 0);
+		bpf_task_release(p); // release the refernece aquired on this task
+	}
+}
 
 static void stat_inc(u32 idx)
 {
@@ -99,6 +138,24 @@ void BPF_STRUCT_OPS(test_dispatch, s32 cpu, struct task_struct *prev)
 
 void BPF_STRUCT_OPS(test_running, struct task_struct *p)
 {
+	/* TODO
+	Find a more efficient way of calculating if approximately 1 second has passed
+	Use bit manipulation for the check.
+	*/
+	if (bpf_ktime_get_ns() - time_prev >= 1000000000) { // have 1000000000 nanoseconds passed?
+		// Fill the ringbuffer with some input for the user-space task to poll (just a number to indicate that a second has passed)
+		u32 * input;
+		input = bpf_ringbuf_reserve(&rb, sizeof(*input), 0);
+		if (!input)
+			return 0;
+		*input = 1;
+		// Remember you can use BPF_RB_NO_WAKEUP flag to improve notification overhead during high throughput
+		bpf_ringbuf_submit(input, 0);
+		// Schedule the user-space task (which invokes the user-space function)
+		dispatch_user_task();
+
+		time_prev = bpf_ktime_get_ns();
+	}
 	if (fifo_sched)
 		return;
 
@@ -110,6 +167,7 @@ void BPF_STRUCT_OPS(test_running, struct task_struct *p)
 	 */
 	if (vtime_before(vtime_now, p->scx.dsq_vtime))
 		vtime_now = p->scx.dsq_vtime;
+
 }
 
 void BPF_STRUCT_OPS(test_stopping, struct task_struct *p, bool runnable)
