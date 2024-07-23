@@ -17,7 +17,7 @@ int main(int argc, char *argv[]) {
     // printf("Process %d is starting.\n", process_num);
 
     // Simulate some work
-    // sleep(1);
+    //sleep(2);
 
     // printf("Process %d has finished.\n", process_num);
     return EXIT_SUCCESS;
