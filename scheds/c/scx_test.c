@@ -10,6 +10,7 @@
 #include <libgen.h>
 #include <bpf/bpf.h>
 #include <scx/common.h>
+#include <sched.h>
 #include "scx_test.bpf.skel.h"
 
 const char help_fmt[] =
@@ -61,18 +62,35 @@ static void read_stats(struct scx_test *skel, __u64 *stats)
 	}
 }
 
+int handle_event(void *ctx, void *data, size_t data_sz) {
+	const u32 * input = data;
+	printf("The value polled from the ring buffer is %d", *input);
+}
+
 int main(int argc, char **argv)
 {
+	struct ring_buffer * rb = NULL;
 	struct scx_test *skel;
 	struct bpf_link *link;
 	__u32 opt;
 	__u64 ecode;
+
+	// Schedule this user-space task with SCHED_EXT
+	struct sched_param sched_param;
+	sched_param.sched_priority = sched_get_priority_max(SCHED_EXT);
+	int err = syscall(__NR_sched_setscheduler, getpid(), SCHED_EXT, &sched_param);
+	SCX_BUG_ON(err, "Failed to set scheduler to SCHED_EXT");
 
 	libbpf_set_print(libbpf_print_fn);
 	signal(SIGINT, sigint_handler);
 	signal(SIGTERM, sigint_handler);
 restart:
 	skel = SCX_OPS_OPEN(test_ops, scx_test);
+
+	rb = ring_buffer__new(bpf_map__fd(skel->maps.rb), handle_event, NULL, NULL);
+	if (!rb) {
+		fprintf(stderr, "Failed to create ring buffer \n");
+	}
 
 	while ((opt = getopt(argc, argv, "fvhp")) != -1) {
 		switch (opt) {
@@ -95,10 +113,24 @@ restart:
 	link = SCX_OPS_ATTACH(skel, test_ops, scx_test);
 
 	while (!exit_req && !UEI_EXITED(skel, uei)) {
-		__u64 stats[2];
+		/* This is the code that gets run every time this task gets scheduled */
+		// __u64 stats[2];
 
-		read_stats(skel, stats);
-		printf("local=%llu global=%llu\n", stats[0], stats[1]);
+		// read_stats(skel, stats);
+		// printf("local=%llu global=%llu\n", stats[0], stats[1]);
+
+		/* Consume data from BPF ringbuffer when it becomes available */
+		int err = perf_buffer__poll(rb, 100 /* timeout, ms */);
+		/* Ctrl-C will cause -EINTR */
+		if (err == -EINTR) {
+			err = 0;
+			break;
+		}
+		if (err < 0) {
+			printf("Error polling ring buffer: %d\n", err);
+			break;
+		}
+
 		fflush(stdout);
 		sleep(1);
 	}
