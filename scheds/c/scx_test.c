@@ -65,6 +65,7 @@ static void read_stats(struct scx_test *skel, __u64 *stats)
 int handle_event(void *ctx, void *data, size_t data_sz) {
 	const u32 * input = data;
 	printf("The value polled from the ring buffer is %d", *input);
+	return input;
 }
 
 int main(int argc, char **argv)
@@ -90,6 +91,7 @@ restart:
 	rb = ring_buffer__new(bpf_map__fd(skel->maps.rb), handle_event, NULL, NULL);
 	if (!rb) {
 		fprintf(stderr, "Failed to create ring buffer \n");
+		goto cleanup;
 	}
 
 	while ((opt = getopt(argc, argv, "fvhp")) != -1) {
@@ -120,7 +122,7 @@ restart:
 		// printf("local=%llu global=%llu\n", stats[0], stats[1]);
 
 		/* Consume data from BPF ringbuffer when it becomes available */
-		int err = perf_buffer__poll(rb, 100 /* timeout, ms */);
+		err = ring_buffer__poll(rb, 100 /* timeout, ms */);
 		/* Ctrl-C will cause -EINTR */
 		if (err == -EINTR) {
 			err = 0;
@@ -138,6 +140,9 @@ restart:
 	bpf_link__destroy(link);
 	ecode = UEI_REPORT(skel, uei);
 	scx_test__destroy(skel);
+
+cleanup:
+	ring_buffer__free(rb);
 
 	if (UEI_ECODE_RESTART(ecode))
 		goto restart;

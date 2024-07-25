@@ -32,7 +32,7 @@ volatile u64 nr_userspace_calls, nr_userspace_finishes;
 /* BPF ringbuffer map */
 struct {
 	__uint(type, BPF_MAP_TYPE_RINGBUF);
-	__uint(max_entries, 4096 /* 4KB, kernel page size */)
+	__uint(max_entries, 4096 /* 4KB, kernel page size */);
 } rb SEC(".maps");
 
 static u64 vtime_now;
@@ -68,7 +68,7 @@ static struct task_struct *userspace_task(void)
 	 * by sched_ext.
 	 */
 	if (!p)
-		scx_bpf_error("Failed to find userspace task %d", usersched_pid);
+		scx_bpf_error("Failed to find userspace task %d", userspace_pid);
 
 	return p;
 }
@@ -146,8 +146,7 @@ void BPF_STRUCT_OPS(test_running, struct task_struct *p)
 		// Fill the ringbuffer with some input for the user-space task to poll (just a number to indicate that a second has passed)
 		u32 * input;
 		input = bpf_ringbuf_reserve(&rb, sizeof(*input), 0);
-		if (!input)
-			return 0;
+		if (!input) return;
 		*input = 1;
 		// Remember you can use BPF_RB_NO_WAKEUP flag to improve notification overhead during high throughput
 		bpf_ringbuf_submit(input, 0);
