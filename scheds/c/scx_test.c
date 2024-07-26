@@ -11,7 +11,10 @@
 #include <bpf/bpf.h>
 #include <scx/common.h>
 #include <assert.h>
+#include <sched.h>
 #include "scx_test.bpf.skel.h"
+
+#define SCHED_EXT 7
 
 const char help_fmt[] =
 "A test sched_ext scheduler.\n"
@@ -49,6 +52,12 @@ int main(int argc, char **argv)
 	libbpf_set_print(libbpf_print_fn);
 	signal(SIGINT, sigint_handler);
 	signal(SIGTERM, sigint_handler);
+	struct sched_param param;
+    param.sched_priority = 0; // SCHED_EXT may not use priority, but setting it to 0
+    if (sched_setscheduler(0, SCHED_EXT, &param) == -1) {
+        // fprintf(stderr, "Error setting scheduler for process %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
 restart:
 	skel = SCX_OPS_OPEN(test_ops, scx_test);
 
@@ -74,10 +83,11 @@ restart:
 
 	while (!exit_req && !UEI_EXITED(skel, uei)) {
 		printf("Working\n");
-		s32 input;
-		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.sent), NULL, &input)) {
-			printf("Value polled: %d", input);
+		u64 input;
+		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.sent), NULL, &input) == 0) {
+			printf("Value polled: %ld\n", input);
 		}
+		printf("Sent: %ld Returned: %ld\n", skel->bss->nr_sent, skel->bss->nr_returned);
 		fflush(stdout);
 		sleep(1);
 	}

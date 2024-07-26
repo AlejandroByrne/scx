@@ -27,8 +27,8 @@ char _license[] SEC("license") = "GPL";
 const volatile s32 usertask_pid;
 
 static volatile s32 user_task_needed;
-static u64 nr_returned;
-static u64 nr_sent;
+volatile u64 nr_returned;
+volatile u64 nr_sent;
 static u64 time_prev;
 
 UEI_DEFINE(uei);
@@ -45,13 +45,13 @@ UEI_DEFINE(uei);
 struct {
 	__uint(type, BPF_MAP_TYPE_QUEUE);
 	__uint(max_entries, 16);
-	__type(value, s32);
+	__type(value, u64);
 } sent SEC(".maps");
 
 struct {
 	__uint(type, BPF_MAP_TYPE_QUEUE);
 	__uint(max_entries, 16);
-	__type(value, s32);
+	__type(value, u64);
 } returned SEC(".maps");
 
 static struct task_struct *usersched_task(void)
@@ -103,7 +103,7 @@ void BPF_STRUCT_OPS(test_enqueue, struct task_struct *p, u64 enq_flags)
 	// Only dispatch the userspace task if it is needed
 	if (is_user_task(p)) {
 		if (user_task_needed) {
-			scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL, enq_flags);
+			scx_bpf_dispatch(p, SHARED_DSQ, SCX_SLICE_DFL, enq_flags);
 		} else {
 			return;
 		}
@@ -121,8 +121,8 @@ void BPF_STRUCT_OPS(test_dispatch, s32 cpu, struct task_struct *prev)
 void BPF_STRUCT_OPS(test_running, struct task_struct *p)
 {
 	// Check the inbox!
-	s32 returned_value;
-	bpf_repeat(16) {
+	u64 returned_value;
+	bpf_repeat(2) {
 		if (!bpf_map_pop_elem(&returned, &returned_value)) {
 			break;
 		}
@@ -133,17 +133,17 @@ void BPF_STRUCT_OPS(test_running, struct task_struct *p)
 	Find a more efficient way of calculating if approximately 1 second has passed
 	Use bit manipulation for the check.
 	*/
-	if (bpf_ktime_get_ns() - time_prev >= 1000000000) { // have 1000000000 nanoseconds passed?
+	//if (bpf_ktime_get_ns() - time_prev >= 1000000000) { // have 1000000000 nanoseconds passed?
 		// Fill the ringbuffer with some input for the user-space task to poll (just a number to indicate that a second has passed)
-		u32 input1 = 10;
-		u32 input2 = 5;
-		bpf_map_push_elem(&sent, &input1, 0);
-		bpf_map_push_elem(&sent, &input2, 0);
-		__sync_fetch_and_add(&nr_sent, 1);
+		u64 input1 = 10;
+		if (bpf_map_push_elem(&sent, &input1, 0) == 0) {
+			__sync_fetch_and_add(&nr_sent, 1);
+			user_task_needed = 1;
+		}
 		// Schedule the user-space task (which invokes the user-space function)
-		user_task_needed = 1;
-		time_prev = bpf_ktime_get_ns();
-	}
+		
+		// time_prev = bpf_ktime_get_ns();
+	//}
 
 	//if (user_task_needed) dispatch_user_scheduler();
 	return;
