@@ -1,0 +1,213 @@
+#include <scx/common.bpf.h>
+
+/*
+ * Built-in DSQs such as SCX_DSQ_GLOBAL cannot be used as priority queues
+ * (meaning, cannot be dispatched to with scx_bpf_dispatch_vtime()). We
+ * therefore create a separate DSQ with ID 0 that we dispatch to and consume
+ * from. If scx_simple only supported global FIFO scheduling, then we could
+ * just use SCX_DSQ_GLOBAL.
+ */
+#define SHARED_DSQ 0
+
+char _license[] SEC("license") = "GPL";
+
+const volatile s32 usersched_pid;
+
+/* Used for measuring when 1 second has passed*/
+static u64 time_prev;
+
+/*
+ * Number of tasks that are queued for scheduling.
+ *
+ * This number is incremented by the BPF component when a task is queued to the
+ * user-space scheduler and it must be decremented by the user-space scheduler
+ * when a task is consumed.
+ */
+volatile u64 nr_sent;
+
+/*
+ * Number of tasks that are waiting for scheduling.
+ *
+ * This number must be updated by the user-space scheduler to keep track if
+ * there is still some scheduling work to do.
+ */
+volatile u64 nr_returned;
+
+UEI_DEFINE(uei);
+
+/*
+ * The map containing tasks that are enqueued in user space from the kernel.
+ *
+ * This map is drained by the user space scheduler.
+ */
+struct {
+	__uint(type, BPF_MAP_TYPE_QUEUE);
+	__uint(max_entries, 16);
+	__type(value, s32);
+} sent SEC(".maps");
+
+/*
+ * The map containing tasks that are dispatched to the kernel from user space.
+ *
+ * Drained by the kernel in userland_dispatch().
+ */
+struct {
+	__uint(type, BPF_MAP_TYPE_QUEUE);
+	__uint(max_entries, 16);
+	__type(value, s32);
+} returned SEC(".maps");
+
+/*
+ * Flag used to wake-up the user-space scheduler.
+ */
+static volatile u32 usersched_needed;
+
+/*
+ * Set user-space scheduler wake-up flag (equivalent to an atomic release
+ * operation).
+ */
+static void set_usersched_needed(void)
+{
+	__sync_fetch_and_or(&usersched_needed, 1);
+}
+
+/*
+ * Check and clear user-space scheduler wake-up flag (equivalent to an atomic
+ * acquire operation).
+ */
+static bool test_and_clear_usersched_needed(void)
+{
+	return __sync_fetch_and_and(&usersched_needed, 0) == 1;
+}
+
+// static bool is_usersched_task(const struct task_struct *p)
+// {
+// 	return p->pid == usersched_pid;
+// }
+
+static struct task_struct *usersched_task(void)
+{
+	struct task_struct *p;
+
+	p = bpf_task_from_pid(usersched_pid);
+	/*
+	 * Should never happen -- the usersched task should always be managed
+	 * by sched_ext.
+	 */
+	if (!p)
+		scx_bpf_error("Failed to find usersched task %d", usersched_pid);
+
+	return p;
+}
+
+s32 BPF_STRUCT_OPS(test_select_cpu, struct task_struct *p,
+		   s32 prev_cpu, u64 wake_flags)
+{
+	bool is_idle = false;
+	s32 cpu;
+
+	cpu = scx_bpf_select_cpu_dfl(p, prev_cpu, wake_flags, &is_idle);
+	if (is_idle) {
+		scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL, 0);
+	}
+
+	return cpu;
+}
+
+static void dispatch_user_scheduler(void)
+{
+	struct task_struct *p;
+
+	p = usersched_task();
+	if (p) {
+		scx_bpf_dispatch(p, SCX_DSQ_GLOBAL, SCX_SLICE_DFL, 0);
+		bpf_task_release(p);
+	}
+}
+
+void BPF_STRUCT_OPS(test_enqueue, struct task_struct *p, u64 enq_flags)
+{
+	scx_bpf_dispatch(p, SHARED_DSQ, SCX_SLICE_DFL, enq_flags);
+}
+
+void BPF_STRUCT_OPS(test_dispatch, s32 cpu, struct task_struct *prev)
+{
+
+	if (nr_sent > nr_returned) {
+		// user-space task still has work to do
+		dispatch_user_scheduler();
+	} else {
+		// set flag to 0 if no work needs to be done by user-space task
+		test_and_clear_usersched_needed();
+	}
+	scx_bpf_consume(SHARED_DSQ);
+
+}
+
+void BPF_STRUCT_OPS(test_running, struct task_struct *p)
+{
+	/* TODO
+	Find a more efficient way of calculating if approximately 1 second has passed
+	Use bit manipulation for the check.
+	*/
+	if (bpf_ktime_get_ns() - time_prev >= 1000000000) { // have 1000000000 nanoseconds passed?
+		// Fill the ringbuffer with some input for the user-space task to poll (just a number to indicate that a second has passed)
+		u32 input1 = 10;
+		u32 input2 = 5;
+		bpf_map_push_elem(&sent, &input1, 0);
+		bpf_map_push_elem(&sent, &input2, 0);
+		__sync_fetch_and_add(&nr_sent, 1);
+		// Schedule the user-space task (which invokes the user-space function)
+		if (!usersched_needed) set_usersched_needed();
+		dispatch_user_scheduler();
+
+		time_prev = bpf_ktime_get_ns();
+	}
+	return;
+}
+
+void BPF_STRUCT_OPS(test_stopping, struct task_struct *p) {
+	// consume returned values
+	bpf_repeat(16) {
+		s32 returned_value;
+		if (bpf_map_pop_elem(&returned, &returned_value)) {
+			__sync_fetch_and_add(&nr_returned, 1);
+		}
+	}
+	if (nr_sent > nr_returned) {
+		// user-space task still has work to do
+		dispatch_user_scheduler();
+	} else {
+		// set flag to 0 if no work needs to be done by user-space task
+		test_and_clear_usersched_needed();
+	}
+}
+
+s32 BPF_STRUCT_OPS(test_init)
+{
+
+	if (usersched_pid <= 0) {
+		scx_bpf_error("User scheduler pid uninitialized (%d)",
+			      usersched_pid);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+void BPF_STRUCT_OPS(test_exit, struct scx_exit_info *ei)
+{
+	UEI_RECORD(uei, ei);
+}
+
+SCX_OPS_DEFINE(test_ops,
+	       .select_cpu		= (void *)test_select_cpu,
+	       .enqueue			= (void *)test_enqueue,
+	       .dispatch		= (void *)test_dispatch,
+		   .running			= (void *)test_running,
+		   .stopping		= (void *)test_stopping,
+	       .init			= (void *)test_init,
+	       .exit			= (void *)test_exit,
+	       .flags			= SCX_OPS_ENQ_LAST |
+					  SCX_OPS_KEEP_BUILTIN_IDLE,
+	       .name			= "test");

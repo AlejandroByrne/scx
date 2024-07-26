@@ -24,11 +24,20 @@
 
 char _license[] SEC("license") = "GPL";
 
-const volatile s32 usertask_pid;
+const volatile bool fifo_sched;
+const volatile s32 userspace_pid;
 
-static volatile s32 user_task_needed;
-static u64 nr_returned;
-static u64 nr_sent;
+volatile u64 nr_userspace_calls, nr_userspace_finishes;
+
+/* BPF ringbuffer map */
+struct {
+	__uint(type, BPF_MAP_TYPE_RINGBUF);
+	__uint(max_entries, 4096 /* 4KB, kernel page size */);
+} rb SEC(".maps");
+
+static u64 vtime_now;
+
+/* Used for measuring when 1 second has passed*/
 static u64 time_prev;
 
 UEI_DEFINE(uei);
@@ -43,46 +52,48 @@ UEI_DEFINE(uei);
 #define SHARED_DSQ 0
 
 struct {
-	__uint(type, BPF_MAP_TYPE_QUEUE);
-	__uint(max_entries, 16);
-	__type(value, s32);
-} sent SEC(".maps");
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(key_size, sizeof(u32));
+	__uint(value_size, sizeof(u64));
+	__uint(max_entries, 2);			/* [local, global] */
+} stats SEC(".maps");
 
-struct {
-	__uint(type, BPF_MAP_TYPE_QUEUE);
-	__uint(max_entries, 16);
-	__type(value, s32);
-} returned SEC(".maps");
-
-static struct task_struct *usersched_task(void)
+static struct task_struct *userspace_task(void)
 {
 	struct task_struct *p;
 
-	p = bpf_task_from_pid(usertask_pid);
+	p = bpf_task_from_pid(userspace_pid);
 	/*
 	 * Should never happen -- the usersched task should always be managed
 	 * by sched_ext.
 	 */
 	if (!p)
-		scx_bpf_error("Failed to find usersched task %d", usertask_pid);
+		scx_bpf_error("Failed to find userspace task %d", userspace_pid);
 
 	return p;
 }
 
-static bool is_user_task(const struct task_struct *p)
-{
-	return p->pid == usertask_pid;
-}
-
-static void dispatch_user_scheduler(void)
+static void dispatch_user_task(void)
 {
 	struct task_struct *p;
 
-	p = usersched_task();
+	p = userspace_task();
 	if (p) {
-		scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL, 0);
-		bpf_task_release(p);
+		scx_bpf_dispatch(p, SCX_DSQ_GLOBAL, SCX_SLICE_DFL, 0);
+		bpf_task_release(p); // release the refernece aquired on this task
 	}
+}
+
+static void stat_inc(u32 idx)
+{
+	u64 *cnt_p = bpf_map_lookup_elem(&stats, &idx);
+	if (cnt_p)
+		(*cnt_p)++;
+}
+
+static inline bool vtime_before(u64 a, u64 b)
+{
+	return (s64)(a - b) < 0;
 }
 
 s32 BPF_STRUCT_OPS(test_select_cpu, struct task_struct *p, s32 prev_cpu, u64 wake_flags)
@@ -92,6 +103,7 @@ s32 BPF_STRUCT_OPS(test_select_cpu, struct task_struct *p, s32 prev_cpu, u64 wak
 
 	cpu = scx_bpf_select_cpu_dfl(p, prev_cpu, wake_flags, &is_idle);
 	if (is_idle) {
+		stat_inc(0);	/* count local queueing */
 		scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL, 0);
 	}
 
@@ -100,17 +112,23 @@ s32 BPF_STRUCT_OPS(test_select_cpu, struct task_struct *p, s32 prev_cpu, u64 wak
 
 void BPF_STRUCT_OPS(test_enqueue, struct task_struct *p, u64 enq_flags)
 {
-	// Only dispatch the userspace task if it is needed
-	if (is_user_task(p)) {
-		if (user_task_needed) {
-			scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL, enq_flags);
-		} else {
-			return;
-		}
-	} else {
+	stat_inc(1);	/* count global queueing */
+
+	if (fifo_sched) {
 		scx_bpf_dispatch(p, SHARED_DSQ, SCX_SLICE_DFL, enq_flags);
+	} else {
+		u64 vtime = p->scx.dsq_vtime;
+
+		/*
+		 * Limit the amount of budget that an idling task can accumulate
+		 * to one slice.
+		 */
+		if (vtime_before(vtime, vtime_now - SCX_SLICE_DFL))
+			vtime = vtime_now - SCX_SLICE_DFL;
+
+		scx_bpf_dispatch_vtime(p, SHARED_DSQ, SCX_SLICE_DFL, vtime,
+				       enq_flags);
 	}
-	
 }
 
 void BPF_STRUCT_OPS(test_dispatch, s32 cpu, struct task_struct *prev)
@@ -120,48 +138,57 @@ void BPF_STRUCT_OPS(test_dispatch, s32 cpu, struct task_struct *prev)
 
 void BPF_STRUCT_OPS(test_running, struct task_struct *p)
 {
-	// Check the inbox!
-	s32 returned_value;
-	bpf_repeat(16) {
-		if (!bpf_map_pop_elem(&returned, &returned_value)) {
-			break;
-		}
-		__sync_fetch_and_add(&nr_returned, 1);
-	}
-	user_task_needed = 0;
 	/* TODO
 	Find a more efficient way of calculating if approximately 1 second has passed
 	Use bit manipulation for the check.
 	*/
 	if (bpf_ktime_get_ns() - time_prev >= 1000000000) { // have 1000000000 nanoseconds passed?
 		// Fill the ringbuffer with some input for the user-space task to poll (just a number to indicate that a second has passed)
-		u32 input1 = 10;
-		u32 input2 = 5;
-		bpf_map_push_elem(&sent, &input1, 0);
-		bpf_map_push_elem(&sent, &input2, 0);
-		__sync_fetch_and_add(&nr_sent, 1);
+		u32 * input;
+		input = bpf_ringbuf_reserve(&rb, sizeof(*input), 0);
+		if (!input) return;
+		*input = 1;
+		// Remember you can use BPF_RB_NO_WAKEUP flag to improve notification overhead during high throughput
+		bpf_ringbuf_submit(input, 0);
 		// Schedule the user-space task (which invokes the user-space function)
-		user_task_needed = 1;
+		dispatch_user_task();
+
 		time_prev = bpf_ktime_get_ns();
 	}
+	if (fifo_sched)
+		return;
 
-	//if (user_task_needed) dispatch_user_scheduler();
-	return;
+	/*
+	 * Global vtime always progresses forward as tasks start executing. The
+	 * test and update can be performed concurrently from multiple CPUs and
+	 * thus racy. Any error should be contained and temporary. Let's just
+	 * live with it.
+	 */
+	if (vtime_before(vtime_now, p->scx.dsq_vtime))
+		vtime_now = p->scx.dsq_vtime;
+
 }
 
 void BPF_STRUCT_OPS(test_stopping, struct task_struct *p, bool runnable)
 {
-	if (nr_sent > nr_returned) {
-		user_task_needed = 1;
-	} else {
-		user_task_needed = 0;
-	}
-	return;
+	if (fifo_sched)
+		return;
+
+	/*
+	 * Scale the execution time by the inverse of the weight and charge.
+	 *
+	 * Note that the default yield implementation yields by setting
+	 * @p->scx.slice to zero and the following would treat the yielding task
+	 * as if it has consumed all its slice. If this penalizes yielding tasks
+	 * too much, determine the execution time by taking explicit timestamps
+	 * instead of depending on @p->scx.slice.
+	 */
+	p->scx.dsq_vtime += (SCX_SLICE_DFL - p->scx.slice) * 100 / p->scx.weight;
 }
 
 void BPF_STRUCT_OPS(test_enable, struct task_struct *p)
 {
-
+	p->scx.dsq_vtime = vtime_now;
 }
 
 s32 BPF_STRUCT_OPS_SLEEPABLE(test_init)
