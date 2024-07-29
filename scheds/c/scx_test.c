@@ -42,6 +42,10 @@ static void sigint_handler(int test)
 	exit_req = 1;
 }
 
+static u64 test_operation(u64 num) {
+	return (num / 2) + 1;
+}
+
 int main(int argc, char **argv)
 {
 	struct scx_test *skel;
@@ -85,7 +89,11 @@ restart:
 		printf("Working\n");
 		u64 input;
 		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.sent), NULL, &input) == 0) {
-			printf("Value polled: %ld\n", input);
+			printf("Value polled: %ld | ", input);
+			u64 result = test_operation(input);
+			if (bpf_map_update_elem(bpf_map__fd(skel->maps.returned), NULL, &result, 0) == 0) {
+				printf("Value sent back: %ld | ", result);
+			}
 		}
 		printf("Sent: %ld Returned: %ld\n", skel->bss->nr_sent, skel->bss->nr_returned);
 		fflush(stdout);
