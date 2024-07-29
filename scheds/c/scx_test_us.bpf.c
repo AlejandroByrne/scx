@@ -47,38 +47,38 @@ struct {
 	__type(value, u64);
 } returned SEC(".maps");
 
-static struct task_struct *usersched_task(void)
-{
-	struct task_struct *p;
+// static struct task_struct *usersched_task(void)
+// {
+// 	struct task_struct *p;
 
-	p = bpf_task_from_pid(usertask_pid);
-	/*
-	 * Should never happen -- the usersched task should always be managed
-	 * by sched_ext.
-	 */
-	if (!p)
-		scx_bpf_error("Failed to find usersched task %d", usertask_pid);
+// 	p = bpf_task_from_pid(usertask_pid);
+// 	/*
+// 	 * Should never happen -- the usersched task should always be managed
+// 	 * by sched_ext.
+// 	 */
+// 	if (!p)
+// 		scx_bpf_error("Failed to find usersched task %d", usertask_pid);
 
-	return p;
-}
+// 	return p;
+// }
 
 static bool is_user_task(const struct task_struct *p)
 {
 	return p->pid == usertask_pid;
 }
 
-static void dispatch_user_scheduler(void)
-{
-	struct task_struct *p;
+// static void dispatch_user_scheduler(void)
+// {
+// 	struct task_struct *p;
 
-	p = usersched_task();
-	if (p) {
-		scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL, 0);
-		bpf_task_release(p);
-	}
-}
+// 	p = usersched_task();
+// 	if (p) {
+// 		scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL, 0);
+// 		bpf_task_release(p);
+// 	}
+// }
 
-s32 BPF_STRUCT_OPS(test_select_cpu, struct task_struct *p, s32 prev_cpu, u64 wake_flags)
+s32 BPF_STRUCT_OPS(test_us_select_cpu, struct task_struct *p, s32 prev_cpu, u64 wake_flags)
 {
 	bool is_idle = false;
 	s32 cpu;
@@ -91,7 +91,7 @@ s32 BPF_STRUCT_OPS(test_select_cpu, struct task_struct *p, s32 prev_cpu, u64 wak
 	return cpu;
 }
 
-void BPF_STRUCT_OPS(test_enqueue, struct task_struct *p, u64 enq_flags)
+void BPF_STRUCT_OPS(test_us_enqueue, struct task_struct *p, u64 enq_flags)
 {
 	// Only dispatch the userspace task if it is needed
 	if (is_user_task(p)) {
@@ -106,12 +106,12 @@ void BPF_STRUCT_OPS(test_enqueue, struct task_struct *p, u64 enq_flags)
 	
 }
 
-void BPF_STRUCT_OPS(test_dispatch, s32 cpu, struct task_struct *prev)
+void BPF_STRUCT_OPS(test_us_dispatch, s32 cpu, struct task_struct *prev)
 {
 	scx_bpf_consume(SHARED_DSQ);
 }
 
-void BPF_STRUCT_OPS(test_running, struct task_struct *p)
+void BPF_STRUCT_OPS(test_us_running, struct task_struct *p)
 {
 	// Check the inbox!
 	u64 returned_value;
@@ -128,11 +128,11 @@ void BPF_STRUCT_OPS(test_running, struct task_struct *p)
 	*/
 	if (bpf_ktime_get_ns() - time_prev >= 1000000000) { // have 1000000000 nanoseconds passed?
 		// Fill the ringbuffer with some input for the user-space task to poll (just a number to indicate that a second has passed)
-	u64 input1 = 10;
-	if (bpf_map_push_elem(&sent, &input1, 0) == 0) {
-		__sync_fetch_and_add(&nr_sent, 1);
-		__sync_fetch_and_or(&user_task_needed, 1);
-	}
+		u64 input1 = 10;
+		if (bpf_map_push_elem(&sent, &input1, 0) == 0) {
+			__sync_fetch_and_add(&nr_sent, 1);
+			__sync_fetch_and_or(&user_task_needed, 1);
+		}
 		time_prev = bpf_ktime_get_ns();
 	}
 
@@ -140,7 +140,7 @@ void BPF_STRUCT_OPS(test_running, struct task_struct *p)
 	return;
 }
 
-void BPF_STRUCT_OPS(test_stopping, struct task_struct *p, bool runnable)
+void BPF_STRUCT_OPS(test_us_stopping, struct task_struct *p, bool runnable)
 {
 	if (nr_sent > nr_returned) {
 		__sync_fetch_and_or(&user_task_needed, 1);
@@ -150,29 +150,29 @@ void BPF_STRUCT_OPS(test_stopping, struct task_struct *p, bool runnable)
 	return;
 }
 
-void BPF_STRUCT_OPS(test_enable, struct task_struct *p)
+void BPF_STRUCT_OPS(test_us_enable, struct task_struct *p)
 {
 
 }
 
-s32 BPF_STRUCT_OPS_SLEEPABLE(test_init)
+s32 BPF_STRUCT_OPS_SLEEPABLE(test_us_init)
 {
 	return scx_bpf_create_dsq(SHARED_DSQ, -1);
 }
 
-void BPF_STRUCT_OPS(test_exit, struct scx_exit_info *ei)
+void BPF_STRUCT_OPS(test_us_exit, struct scx_exit_info *ei)
 {
 	scx_bpf_destroy_dsq(SHARED_DSQ);
 	UEI_RECORD(uei, ei);
 }
 
-SCX_OPS_DEFINE(test_ops,
-	       .select_cpu		= (void *)test_select_cpu,
-	       .enqueue			= (void *)test_enqueue,
-	       .dispatch		= (void *)test_dispatch,
-	       .running			= (void *)test_running,
-	       .stopping		= (void *)test_stopping,
-	       .enable			= (void *)test_enable,
-	       .init			= (void *)test_init,
-	       .exit			= (void *)test_exit,
-	       .name			= "test");
+SCX_OPS_DEFINE(test_us_ops,
+	       .select_cpu		= (void *)test_us_select_cpu,
+	       .enqueue			= (void *)test_us_enqueue,
+	       .dispatch		= (void *)test_us_dispatch,
+	       .running			= (void *)test_us_running,
+	       .stopping		= (void *)test_us_stopping,
+	       .enable			= (void *)test_us_enable,
+	       .init			= (void *)test_us_init,
+	       .exit			= (void *)test_us_exit,
+	       .name			= "test_us");

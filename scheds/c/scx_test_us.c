@@ -12,7 +12,7 @@
 #include <scx/common.h>
 #include <assert.h>
 #include <sched.h>
-#include "scx_test.bpf.skel.h"
+#include "scx_test_us.bpf.skel.h"
 
 #define SCHED_EXT 7
 
@@ -48,7 +48,7 @@ static u64 test_operation(u64 num) {
 
 int main(int argc, char **argv)
 {
-	struct scx_test *skel;
+	struct scx_test_us *skel;
 	struct bpf_link *link;
 	__u32 opt;
 	__u64 ecode;
@@ -63,7 +63,7 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 restart:
-	skel = SCX_OPS_OPEN(test_ops, scx_test);
+	skel = SCX_OPS_OPEN(test_us_ops, scx_test_us);
 
 	skel->rodata->usertask_pid = getpid();
 	assert(skel->rodata->usertask_pid > 0);
@@ -74,7 +74,7 @@ restart:
 			verbose = true;
 			break;
 		case 'p':
-			skel->struct_ops.test_ops->flags |= SCX_OPS_SWITCH_PARTIAL;
+			skel->struct_ops.test_us_ops->flags |= SCX_OPS_SWITCH_PARTIAL;
 			break;
 		default:
 			fprintf(stderr, help_fmt, basename(argv[0]));
@@ -82,8 +82,8 @@ restart:
 		}
 	}
 
-	SCX_OPS_LOAD(skel, test_ops, scx_test, uei);
-	link = SCX_OPS_ATTACH(skel, test_ops, scx_test);
+	SCX_OPS_LOAD(skel, test_us_ops, scx_test_us, uei);
+	link = SCX_OPS_ATTACH(skel, test_us_ops, scx_test_us);
 
 	while (!exit_req && !UEI_EXITED(skel, uei)) {
 		printf("Working\n");
@@ -102,7 +102,7 @@ restart:
 
 	bpf_link__destroy(link);
 	ecode = UEI_REPORT(skel, uei);
-	scx_test__destroy(skel);
+	scx_test_us__destroy(skel);
 
 	if (UEI_ECODE_RESTART(ecode))
 		goto restart;
