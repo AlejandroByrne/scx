@@ -1,19 +1,11 @@
 /* SPDX-License-Identifier: GPL-2.0 */
-/*
- * Copyright (c) 2022 Meta Platforms, Inc. and affiliates.
- * Copyright (c) 2022 Tejun Heo <tj@kernel.org>
- * Copyright (c) 2022 David Vernet <dvernet@meta.com>
- */
 #include <stdio.h>
 #include <unistd.h>
 #include <signal.h>
 #include <libgen.h>
 #include <bpf/bpf.h>
 #include <scx/common.h>
-#include <assert.h>
-#include <sched.h>
-#include "scx_test_ks.bpf.skel.h"
-#include "scx_test_ks.h"
+#include "scx_fifo.bpf.skel.h"
 
 #define SCHED_EXT 7
 
@@ -33,7 +25,7 @@ static void sigint_handler(int test)
 
 int main(int argc, char **argv)
 {
-	struct scx_test_ks *skel;
+	struct scx_fifo *skel;
 	struct bpf_link *link;
 	__u64 ecode;
 
@@ -42,10 +34,10 @@ int main(int argc, char **argv)
 	signal(SIGTERM, sigint_handler);
 	
 restart:
-	skel = SCX_OPS_OPEN(test_ks_ops, scx_test_ks);
+	skel = SCX_OPS_OPEN(test_fifo_ops, scx_fifo);
 
-	SCX_OPS_LOAD(skel, test_ks_ops, scx_test_ks, uei);
-	link = SCX_OPS_ATTACH(skel, test_ks_ops, scx_test_ks);
+	SCX_OPS_LOAD(skel, test_fifo_ops, scx_fifo, uei);
+	link = SCX_OPS_ATTACH(skel, test_fifo_ops, scx_fifo);
 
 	while (!exit_req && !UEI_EXITED(skel, uei)) {
 		printf("Working\n");
@@ -55,7 +47,7 @@ restart:
 
 	bpf_link__destroy(link);
 	ecode = UEI_REPORT(skel, uei);
-	scx_test_ks__destroy(skel);
+	scx_fifo__destroy(skel);
 
 	if (UEI_ECODE_RESTART(ecode))
 		goto restart;

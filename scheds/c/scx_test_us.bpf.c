@@ -21,6 +21,7 @@
  * Copyright (c) 2022 David Vernet <dvernet@meta.com>
  */
 #include <scx/common.bpf.h>
+#include "scx_test_ks.h"
 
 char _license[] SEC("license") = "GPL";
 
@@ -46,6 +47,12 @@ struct {
 	__uint(max_entries, 16);
 	__type(value, u64);
 } returned SEC(".maps");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_QUEUE);
+	__uint(max_entries, 256);
+	__type(value, struct time_datum);
+} time_data SEC(".maps");
 
 // static struct task_struct *usersched_task(void)
 // {
@@ -119,6 +126,9 @@ void BPF_STRUCT_OPS(test_us_running, struct task_struct *p)
 		if (bpf_map_pop_elem(&returned, &returned_value) < 0) {
 			break;
 		}
+		struct time_datum td;
+		bpf_map_pop_elem(&time_data, &td);
+		u64 time_done = bpf_ktime_get_ns();
 		__sync_fetch_and_add(&nr_returned, 1);
 	}
 	__sync_fetch_and_or(&user_task_needed, 0);
@@ -128,6 +138,7 @@ void BPF_STRUCT_OPS(test_us_running, struct task_struct *p)
 	*/
 	if (bpf_ktime_get_ns() - time_prev >= 1000000000) { // have 1000000000 nanoseconds passed?
 		// Fill the ringbuffer with some input for the user-space task to poll (just a number to indicate that a second has passed)
+		u64 time_now = bpf_ktime_get_ns();
 		u64 input1 = 10;
 		if (bpf_map_push_elem(&sent, &input1, 0) == 0) {
 			__sync_fetch_and_add(&nr_sent, 1);
