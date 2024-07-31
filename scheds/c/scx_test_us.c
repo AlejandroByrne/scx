@@ -13,6 +13,7 @@
 #include <assert.h>
 #include <sched.h>
 #include "scx_test_us.bpf.skel.h"
+#include "scx_test_ks.h"
 
 #define SCHED_EXT 7
 
