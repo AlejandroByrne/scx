@@ -88,6 +88,10 @@ restart:
 
 	while (!exit_req && !UEI_EXITED(skel, uei)) {
 		printf("Working\n");
+		struct time_datum td;
+		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.time_data_finalized), NULL, &td) == 0) {
+			printf("Time taken: %ld\n", td.elapsed_ns);
+		}
 		u64 input;
 		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.sent), NULL, &input) == 0) {
 			printf("Value polled: %ld | ", input);
