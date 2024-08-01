@@ -87,20 +87,21 @@ restart:
 	link = SCX_OPS_ATTACH(skel, test_us_ops, scx_test_us);
 
 	while (!exit_req && !UEI_EXITED(skel, uei)) {
-		printf("Working\n");
+		// printf("Working\n");
 		struct time_datum td;
 		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.time_data_finalized), NULL, &td) == 0) {
-			printf("Time taken: %ld\n", td.elapsed_ns);
+			// printf("Time taken: %ld\n", td.elapsed_ns);
+			printf("%ld\n", td.elapsed_ns);
 		}
 		u64 input;
 		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.sent), NULL, &input) == 0) {
-			printf("Value polled: %ld | ", input);
+			// printf("Value polled: %ld | ", input);
 			u64 result = test_operation(input);
 			if (bpf_map_update_elem(bpf_map__fd(skel->maps.returned), NULL, &result, 0) == 0) {
-				printf("Value sent back: %ld | ", result);
+				// printf("Value sent back: %ld | ", result);
 			}
 		}
-		printf("Sent: %ld Returned: %ld\n", skel->bss->nr_sent, skel->bss->nr_returned);
+		// printf("Sent: %ld Returned: %ld\n", skel->bss->nr_sent, skel->bss->nr_returned);
 		fflush(stdout);
 		sleep(1);
 	}

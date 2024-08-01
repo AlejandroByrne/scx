@@ -11,7 +11,7 @@ compile this file with:
 gcc -o fork_spawn fork_spawn.c
 */
 
-#define NUM_PROCESSES 5
+#define NUM_PROCESSES 20
 #define SCHED_EXT 7 // Replace this with the actual value for SCHED_EXT if it's defined differently
 
 void countdown(int seconds) {
@@ -29,7 +29,7 @@ int main() {
     int process_args[NUM_PROCESSES];
 
     // printf("Countdown before creating processes:\n");
-    countdown(10);
+    countdown(12);
 
     // Set the scheduling policy to SCHED_EXT if required
     struct sched_param param;
@@ -70,6 +70,6 @@ int main() {
         }
     }
 
-    // printf("All processes have finished.\n");
+    printf("All processes have finished.\n");
     return EXIT_SUCCESS;
 }
