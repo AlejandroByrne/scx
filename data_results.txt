@@ -1,0 +1,14 @@
+USERSPACE:
+- Regular running circumstance (simply run the scheduler)
+ > Average:        807483.334
+- Controlled running circumstance (partial mode with 20 processes spawned)
+ > Mean:     618601311.0
+ > Median:
+ > Min:
+ > Max:
+ > STD:
+KERNELSPACE:
+- Regular running circumstance (simply run the scheduler)
+ > Average:         16981.0
+- Controlled running circumstance (partial mode with 20 processes spawned)
+ > Average:         12898.667

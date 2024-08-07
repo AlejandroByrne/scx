@@ -17,23 +17,11 @@
 
 #define SCHED_EXT 7
 
-const char help_fmt[] =
-"A test sched_ext scheduler.\n"
-"\n"
-"See the top-level comment in .bpf.c for more details.\n"
-"\n"
-"Usage: %s [-f] [-v]\n"
-"\n"
-"  -v            Print libbpf debug messages\n"
-"  -p			 Run the scheduler in partial mode\n"
-"  -h            Display this help and exit\n";
-
-static bool verbose;
 static volatile int exit_req;
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
 {
-	if (level == LIBBPF_DEBUG && !verbose)
+	if (level == LIBBPF_DEBUG)
 		return 0;
 	return vfprintf(stderr, format, args);
 }
@@ -47,53 +35,35 @@ int main(int argc, char **argv)
 {
 	struct scx_test_ks *skel;
 	struct bpf_link *link;
-	__u32 opt;
 	__u64 ecode;
 
 	libbpf_set_print(libbpf_print_fn);
 	signal(SIGINT, sigint_handler);
 	signal(SIGTERM, sigint_handler);
-	struct sched_param param;
-    param.sched_priority = 0; // SCHED_EXT may not use priority, but setting it to 0
-    if (sched_setscheduler(0, SCHED_EXT, &param) == -1) {
-        // fprintf(stderr, "Error setting scheduler for process %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
+	
 restart:
 	skel = SCX_OPS_OPEN(test_ks_ops, scx_test_ks);
-
-	skel->rodata->usertask_pid = getpid();
-	assert(skel->rodata->usertask_pid > 0);
-
-	while ((opt = getopt(argc, argv, "vhp")) != -1) {
-		switch (opt) {
-		case 'v':
-			verbose = true;
-			break;
-		case 'p':
-			skel->struct_ops.test_ks_ops->flags |= SCX_OPS_SWITCH_PARTIAL;
-			break;
-		default:
-			fprintf(stderr, help_fmt, basename(argv[0]));
-			return opt != 'h';
-		}
-	}
 
 	SCX_OPS_LOAD(skel, test_ks_ops, scx_test_ks, uei);
 	link = SCX_OPS_ATTACH(skel, test_ks_ops, scx_test_ks);
 
 	while (!exit_req && !UEI_EXITED(skel, uei)) {
+<<<<<<< HEAD
+		//printf("Working\n");
+=======
 		//printf("Working\n");
 		u64 input;
 		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.results), NULL, &input) == 0) {
-			//printf("Value polled: %ld | ", input);
+			////printf("Value polled: %ld | ", input);
 			struct time_datum td;
 			if (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.time_data), NULL, &td) == 0) {
-				//printf("Time taken: %ld ns| ", td.elapsed_ns);
+				////printf("Time taken: %ld ns| ", td.elapsed_ns);
+				printf("%ld\n", td.elapsed_ns);
 				printf("%ld\n", td.elapsed_ns);
 			}
 		}
-		//printf("Sent: %ld\n", skel->bss->nr_sent);
+		////printf("Sent: %ld\n", skel->bss->nr_sent);
+>>>>>>> main
 		fflush(stdout);
 		sleep(1);
 	}
