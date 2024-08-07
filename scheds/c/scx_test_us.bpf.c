@@ -52,7 +52,13 @@ struct {
 	__uint(type, BPF_MAP_TYPE_QUEUE);
 	__uint(max_entries, 256);
 	__type(value, struct time_datum);
-} time_data SEC(".maps");
+} time_data_not_done SEC(".maps");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_QUEUE);
+	__uint(max_entries, 256);
+	__type(value, struct time_datum);
+} time_data_finalized SEC(".maps");
 
 // static struct task_struct *usersched_task(void)
 // {
@@ -91,6 +97,7 @@ s32 BPF_STRUCT_OPS(test_us_select_cpu, struct task_struct *p, s32 prev_cpu, u64 
 	s32 cpu;
 
 	cpu = scx_bpf_select_cpu_dfl(p, prev_cpu, wake_flags, &is_idle);
+	// Helps keep cores running with minimal downtime
 	if (is_idle && !is_user_task(p)) {
 		scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL, 0);
 	}
@@ -126,9 +133,11 @@ void BPF_STRUCT_OPS(test_us_running, struct task_struct *p)
 		if (bpf_map_pop_elem(&returned, &returned_value) < 0) {
 			break;
 		}
-		struct time_datum td;
-		bpf_map_pop_elem(&time_data, &td);
-		u64 time_done = bpf_ktime_get_ns();
+		struct time_datum td_f;
+		bpf_map_pop_elem(&time_data_not_done, &td_f);
+		td_f.time_end = bpf_ktime_get_ns();
+		td_f.elapsed_ns = td_f.time_end - td_f.time_start;
+		bpf_map_push_elem(&time_data_finalized, &td_f, 0);
 		__sync_fetch_and_add(&nr_returned, 1);
 	}
 	__sync_fetch_and_or(&user_task_needed, 0);
@@ -138,7 +147,8 @@ void BPF_STRUCT_OPS(test_us_running, struct task_struct *p)
 	*/
 	if (bpf_ktime_get_ns() - time_prev >= 1000000000) { // have 1000000000 nanoseconds passed?
 		// Fill the ringbuffer with some input for the user-space task to poll (just a number to indicate that a second has passed)
-		u64 time_now = bpf_ktime_get_ns();
+		struct time_datum td = {.time_start=bpf_ktime_get_ns()};
+		bpf_map_push_elem(&time_data_not_done, &td, 0);
 		u64 input1 = 10;
 		if (bpf_map_push_elem(&sent, &input1, 0) == 0) {
 			__sync_fetch_and_add(&nr_sent, 1);

@@ -12,7 +12,7 @@
 #include <scx/common.h>
 #include <assert.h>
 #include <sched.h>
-#include "scx_test_us.bpf.skel.h"
+#include "scx_ringbuf_us.bpf.skel.h"
 #include "scx_test_ks.h"
 
 #define SCHED_EXT 7
@@ -31,6 +31,9 @@ const char help_fmt[] =
 static bool verbose;
 static volatile int exit_req;
 
+static struct ring_buffer *sent;
+static int returned_fd;
+
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
 {
 	if (level == LIBBPF_DEBUG && !verbose)
@@ -47,9 +50,18 @@ static u64 test_operation(u64 num) {
 	return (num / 2) + 1;
 }
 
+int handle_sent(void * ctx, void * data, size_t data_size) {
+    struct struct_data *d = data;
+    if (verbose) printf("Received: %d ", d->data);
+    d->data = test_operation(d->data);
+    if (verbose) printf("Returned: %d\n", d->data);
+    bpf_map_update_elem(returned_fd, NULL, d, 0);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
-	struct scx_test_us *skel;
+	struct scx_ringbuf_us *skel;
 	struct bpf_link *link;
 	__u32 opt;
 	__u64 ecode;
@@ -64,7 +76,7 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 restart:
-	skel = SCX_OPS_OPEN(test_us_ops, scx_test_us);
+	skel = SCX_OPS_OPEN(ringbuf_us_ops, scx_ringbuf_us);
 
 	skel->rodata->usertask_pid = getpid();
 	assert(skel->rodata->usertask_pid > 0);
@@ -75,7 +87,7 @@ restart:
 			verbose = true;
 			break;
 		case 'p':
-			skel->struct_ops.test_us_ops->flags |= SCX_OPS_SWITCH_PARTIAL;
+			skel->struct_ops.ringbuf_us_ops->flags |= SCX_OPS_SWITCH_PARTIAL;
 			break;
 		default:
 			fprintf(stderr, help_fmt, basename(argv[0]));
@@ -83,32 +95,26 @@ restart:
 		}
 	}
 
-	SCX_OPS_LOAD(skel, test_us_ops, scx_test_us, uei);
-	link = SCX_OPS_ATTACH(skel, test_us_ops, scx_test_us);
+	SCX_OPS_LOAD(skel, ringbuf_us_ops, scx_ringbuf_us, uei);
+	link = SCX_OPS_ATTACH(skel, ringbuf_us_ops, scx_ringbuf_us);
+
+    sent = ring_buffer__new(bpf_map__fd(skel->maps.sent), handle_sent, NULL, NULL);
+    returned_fd = bpf_map__fd(skel->maps.returned);
 
 	while (!exit_req && !UEI_EXITED(skel, uei)) {
-		// printf("Working\n");
-		struct time_datum td;
-		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.time_data_finalized), NULL, &td) == 0) {
-			// printf("Time taken: %ld\n", td.elapsed_ns);
-			printf("%ld\n", td.elapsed_ns);
+		printf("Working\n");
+		while (ring_buffer__poll(sent, 100 /*timeout threshold, ms*/) > 0) {
+			
 		}
-		u64 input;
-		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.sent), NULL, &input) == 0) {
-			// printf("Value polled: %ld | ", input);
-			u64 result = test_operation(input);
-			if (bpf_map_update_elem(bpf_map__fd(skel->maps.returned), NULL, &result, 0) == 0) {
-				// printf("Value sent back: %ld | ", result);
-			}
-		}
-		// printf("Sent: %ld Returned: %ld\n", skel->bss->nr_sent, skel->bss->nr_returned);
+		printf("Sent: %ld Returned: %ld\n", skel->bss->nr_sent, skel->bss->nr_returned);
 		fflush(stdout);
 		sleep(1);
 	}
 
+    ring_buffer__free(sent);
 	bpf_link__destroy(link);
 	ecode = UEI_REPORT(skel, uei);
-	scx_test_us__destroy(skel);
+	scx_ringbuf_us__destroy(skel);
 
 	if (UEI_ECODE_RESTART(ecode))
 		goto restart;

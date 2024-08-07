@@ -63,7 +63,10 @@ struct {
 // }
 
 static u64 test_operation(u64 num) {
-	return (num / 2) + 1;
+	// time start
+	u64 result = (num / 2) + 1;
+	// time end
+	return result;
 }
 
 // static void dispatch_user_scheduler(void)
