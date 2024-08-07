@@ -25,6 +25,11 @@ struct {
 	__type(value, struct struct_data);
 } returned SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, 4096 * 16);
+} time_data SEC(".maps");
+
 static bool is_user_task(const struct task_struct *p)
 {
 	return p->pid == usertask_pid;
@@ -72,8 +77,13 @@ void BPF_STRUCT_OPS(ringbuf_us_running, struct task_struct *p)
 			break;
 		}
 		u64 time_done = bpf_ktime_get_ns();
-		returned_value.td.time_end = time_done;
-		returned_value.td.elapsed_ns = time_done - returned_value.td.time_start;
+		returned_value.time_end = time_done;
+		returned_value.elapsed_ns = time_done - returned_value.time_start;
+		u64 * time;
+		time = bpf_ringbuf_reserve(&time_data, sizeof(*time), 0);
+		if (!time) return;
+		*time = returned_value.elapsed_ns;
+		bpf_ringbuf_submit(time, 0);
 		__sync_fetch_and_add(&nr_returned, 1);
 	}
 	__sync_fetch_and_or(&user_task_needed, 0);
@@ -86,7 +96,8 @@ void BPF_STRUCT_OPS(ringbuf_us_running, struct task_struct *p)
 		u64 time_now = bpf_ktime_get_ns();
 		struct struct_data *d;
 		d = bpf_ringbuf_reserve(&sent, sizeof(*d), 0);
-		d->td.time_start = time_now;
+		if (!d) return;
+		d->time_start = time_now;
 		d->data = 10;
 		bpf_ringbuf_submit(d, 0);
 		__sync_fetch_and_add(&nr_sent, 1);

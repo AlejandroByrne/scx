@@ -5,6 +5,8 @@ struct time_datum {
 };
 
 struct struct_data {
-	struct time_datum td;
+	u64 time_start;
+	u64 time_end;
+	u64 elapsed_ns;
 	int data;
 };

@@ -12,3 +12,7 @@ KERNELSPACE:
  > Average:         16981.0
 - Controlled running circumstance (partial mode with 20 processes spawned)
  > Average:         12898.667
+
+USERSPACE w/ RINGBUFFER:
+- Regular running circumstance
+ > Average:         5212273520835.0  (5 seconds)
