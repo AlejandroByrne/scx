@@ -48,7 +48,21 @@ restart:
 	link = SCX_OPS_ATTACH(skel, test_ks_ops, scx_test_ks);
 
 	while (!exit_req && !UEI_EXITED(skel, uei)) {
+<<<<<<< HEAD
 		printf("Working\n");
+=======
+		//printf("Working\n");
+		u64 input;
+		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.results), NULL, &input) == 0) {
+			//printf("Value polled: %ld | ", input);
+			struct time_datum td;
+			if (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.time_data), NULL, &td) == 0) {
+				//printf("Time taken: %ld ns| ", td.elapsed_ns);
+				printf("%ld\n", td.elapsed_ns);
+			}
+		}
+		//printf("Sent: %ld\n", skel->bss->nr_sent);
+>>>>>>> main
 		fflush(stdout);
 		sleep(1);
 	}
