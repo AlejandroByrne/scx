@@ -27,6 +27,9 @@ char _license[] SEC("license") = "GPL";
 
 const volatile s32 usertask_pid;
 
+volatile u32 other_task;
+volatile u64 nr_enqueued;
+
 static volatile s32 user_task_needed;
 volatile u64 nr_returned;
 volatile u64 nr_sent;
@@ -38,27 +41,21 @@ UEI_DEFINE(uei);
 
 struct {
 	__uint(type, BPF_MAP_TYPE_QUEUE);
-	__uint(max_entries, 16);
+	__uint(max_entries, 1024);
 	__type(value, u64);
 } sent SEC(".maps");
 
 struct {
 	__uint(type, BPF_MAP_TYPE_QUEUE);
-	__uint(max_entries, 16);
+	__uint(max_entries, 1024);
 	__type(value, u64);
 } returned SEC(".maps");
 
 struct {
 	__uint(type, BPF_MAP_TYPE_QUEUE);
-	__uint(max_entries, 256);
-	__type(value, struct time_datum);
-} time_data_not_done SEC(".maps");
-
-struct {
-	__uint(type, BPF_MAP_TYPE_QUEUE);
-	__uint(max_entries, 256);
-	__type(value, struct time_datum);
-} time_data_finalized SEC(".maps");
+	__uint(max_entries, 1024);
+	__type(value, struct struct_data);
+} finalized SEC(".maps");
 
 // static struct task_struct *usersched_task(void)
 // {
@@ -80,16 +77,6 @@ static bool is_user_task(const struct task_struct *p)
 	return p->pid == usertask_pid;
 }
 
-// static void dispatch_user_scheduler(void)
-// {
-// 	struct task_struct *p;
-
-// 	p = usersched_task();
-// 	if (p) {
-// 		scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL, 0);
-// 		bpf_task_release(p);
-// 	}
-// }
 
 s32 BPF_STRUCT_OPS(test_us_select_cpu, struct task_struct *p, s32 prev_cpu, u64 wake_flags)
 {
@@ -98,7 +85,7 @@ s32 BPF_STRUCT_OPS(test_us_select_cpu, struct task_struct *p, s32 prev_cpu, u64 
 
 	cpu = scx_bpf_select_cpu_dfl(p, prev_cpu, wake_flags, &is_idle);
 	// Helps keep cores running with minimal downtime
-	if (is_idle && !is_user_task(p)) {
+	if (is_idle && !is_user_task(p) && user_task_needed) {
 		scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL, 0);
 	}
 
@@ -107,6 +94,7 @@ s32 BPF_STRUCT_OPS(test_us_select_cpu, struct task_struct *p, s32 prev_cpu, u64 
 
 void BPF_STRUCT_OPS(test_us_enqueue, struct task_struct *p, u64 enq_flags)
 {
+	__sync_fetch_and_add(&nr_enqueued, 1);
 	// Only dispatch the userspace task if it is needed
 	if (is_user_task(p)) {
 		if (user_task_needed) {
@@ -115,6 +103,7 @@ void BPF_STRUCT_OPS(test_us_enqueue, struct task_struct *p, u64 enq_flags)
 			return;
 		}
 	} else {
+		__sync_fetch_and_or(&other_task, 1);
 		scx_bpf_dispatch(p, SHARED_DSQ, SCX_SLICE_DFL, enq_flags);
 	}
 	
@@ -128,16 +117,14 @@ void BPF_STRUCT_OPS(test_us_dispatch, s32 cpu, struct task_struct *prev)
 void BPF_STRUCT_OPS(test_us_running, struct task_struct *p)
 {
 	// Check the inbox!
-	u64 returned_value;
+	struct struct_data returned_value;
 	bpf_repeat(16) { // parameter indicates the maximum loop iterations, since it breaks if there is nothing to poll
 		if (bpf_map_pop_elem(&returned, &returned_value) < 0) {
 			break;
 		}
-		struct time_datum td_f;
-		bpf_map_pop_elem(&time_data_not_done, &td_f);
-		td_f.time_end = bpf_ktime_get_ns();
-		td_f.elapsed_ns = td_f.time_end - td_f.time_start;
-		bpf_map_push_elem(&time_data_finalized, &td_f, 0);
+		returned_value.time_end = bpf_ktime_get_ns();
+		returned_value.elapsed_ns = returned_value.time_end - returned_value.time_start;
+		bpf_map_push_elem(&finalized, &returned_value, 0);
 		__sync_fetch_and_add(&nr_returned, 1);
 	}
 	__sync_fetch_and_or(&user_task_needed, 0);
@@ -145,17 +132,15 @@ void BPF_STRUCT_OPS(test_us_running, struct task_struct *p)
 	Find a more efficient way of calculating if approximately 1 second has passed
 	Use bit manipulation for the check.
 	*/
-	if (bpf_ktime_get_ns() - time_prev >= 1000000000) { // have 1000000000 nanoseconds passed?
+	// if (bpf_ktime_get_ns() - time_prev >= 1000000000) { // have 1000000000 nanoseconds passed?
 		// Fill the ringbuffer with some input for the user-space task to poll (just a number to indicate that a second has passed)
-		struct time_datum td = {.time_start=bpf_ktime_get_ns()};
-		bpf_map_push_elem(&time_data_not_done, &td, 0);
-		u64 input1 = 10;
-		if (bpf_map_push_elem(&sent, &input1, 0) == 0) {
+		struct struct_data data = {.time_start=bpf_ktime_get_ns(), .data = 10};
+		if (bpf_map_push_elem(&sent, &data, 0) == 0) {
 			__sync_fetch_and_add(&nr_sent, 1);
 			__sync_fetch_and_or(&user_task_needed, 1);
 		}
 		time_prev = bpf_ktime_get_ns();
-	}
+	// }
 
 	//if (user_task_needed) dispatch_user_scheduler();
 	return;
@@ -173,11 +158,12 @@ void BPF_STRUCT_OPS(test_us_stopping, struct task_struct *p, bool runnable)
 
 void BPF_STRUCT_OPS(test_us_enable, struct task_struct *p)
 {
-
+	return;
 }
 
 s32 BPF_STRUCT_OPS_SLEEPABLE(test_us_init)
 {
+	__sync_fetch_and_or(&other_task, 0);
 	return scx_bpf_create_dsq(SHARED_DSQ, -1);
 }
 

@@ -1,4 +1,5 @@
 import sys
+import statistics
 
 def read_numbers_from_file(filename):
     numbers = []
@@ -17,10 +18,16 @@ def read_numbers_from_file(filename):
         sys.exit(1)
     return numbers
 
-def calculate_average(numbers):
+def calculate_stats(numbers):
     if not numbers:
         return 0
-    return sum(numbers) / len(numbers)
+    mean = statistics.mean(numbers)
+    median = statistics.median(numbers)
+    min_n = min(numbers)
+    max_n = max(numbers)
+    std_dev = statistics.stdev(numbers)
+
+    return mean, median, min_n, max_n, std_dev
 
 def main():
     if len(sys.argv) != 2:
@@ -29,8 +36,14 @@ def main():
 
     filename = sys.argv[1]
     numbers = read_numbers_from_file(filename)
-    average = calculate_average(numbers)
-    print(f"The average of the numbers is: {average}")
+    mean, median, min_n, max_n, std_dev = calculate_stats(numbers)
+    # print(f"Mean: {mean}\nMedian: {median}\nMin: {min_n}\nMax: {max_n}\nStandard Deviation: {std_dev}\n")
+    # Printing with the specified format
+    print(f"        > Mean:                  {mean / 10000:18.10f}")
+    print(f"        > Median:                {median / 10000:18.10f}")
+    print(f"        > Min:                   {min_n / 10000:18.10f}")
+    print(f"        > Max:                   {max_n / 10000:18.10f}")
+    print(f"        > Standard Deviation:    {std_dev / 10000:18.10f}\n")
 
 if __name__ == "__main__":
     main()

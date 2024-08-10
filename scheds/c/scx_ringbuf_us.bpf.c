@@ -16,18 +16,18 @@ UEI_DEFINE(uei);
 
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 4096 * 16);
+    __uint(max_entries, 1024);
 } sent SEC(".maps");
 
 struct {
 	__uint(type, BPF_MAP_TYPE_QUEUE);
-	__uint(max_entries, 256);
+	__uint(max_entries, 1024);
 	__type(value, struct struct_data);
 } returned SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 4096 * 16);
+    __uint(max_entries, 1024);
 } time_data SEC(".maps");
 
 static bool is_user_task(const struct task_struct *p)
@@ -41,8 +41,8 @@ s32 BPF_STRUCT_OPS(ringbuf_us_select_cpu, struct task_struct *p, s32 prev_cpu, u
 	s32 cpu;
 
 	cpu = scx_bpf_select_cpu_dfl(p, prev_cpu, wake_flags, &is_idle);
-	if (is_idle && !is_user_task(p)) {
-		scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL, 0);
+	if (is_idle && !is_user_task(p) && user_task_needed) {
+		scx_bpf_dispatch(p, SHARED_DSQ, SCX_SLICE_DFL, 0);
 	}
 
 	return cpu;
@@ -53,7 +53,7 @@ void BPF_STRUCT_OPS(ringbuf_us_enqueue, struct task_struct *p, u64 enq_flags)
 	// Only dispatch the userspace task if it is needed
 	if (is_user_task(p)) {
 		if (user_task_needed) {
-			scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL, enq_flags);
+			scx_bpf_dispatch(p, SHARED_DSQ, SCX_SLICE_DFL, enq_flags);
 		} else {
 			return;
 		}

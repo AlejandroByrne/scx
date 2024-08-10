@@ -66,7 +66,7 @@ static u64 test_operation(u64 num) {
 
 int handle_time_data(void * ctx, void * data, size_t data_size) {
 	u64 * time = data;
-	printf("%ld\n", *time);
+	// printf("%ld\n", *time);
 	return 0;
 }
 
@@ -134,7 +134,7 @@ restart:
 		while(ring_buffer__poll(time_data, 100) > 0) {
 
 		}
-		if (verbose) printf("Sent: %ld Returned: %ld\n", skel->bss->nr_sent, skel->bss->nr_returned);
+		printf("Sent: %ld Returned: %ld\n", skel->bss->nr_sent, skel->bss->nr_returned);
 		fflush(stdout);
 		sleep(1);
 	}

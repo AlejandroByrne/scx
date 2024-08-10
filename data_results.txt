@@ -1,18 +1,49 @@
-USERSPACE:
-- Regular running circumstance (simply run the scheduler)
- > Average:        807483.334
-- Controlled running circumstance (partial mode with 20 processes spawned)
- > Mean:     618601311.0
- > Median:
- > Min:
- > Max:
- > STD:
-KERNELSPACE:
-- Regular running circumstance (simply run the scheduler)
- > Average:         16981.0
-- Controlled running circumstance (partial mode with 20 processes spawned)
- > Average:         12898.667
-
-USERSPACE w/ RINGBUFFER:
-- Regular running circumstance
- > Average:         5212273520835.0  (5 seconds)
+USERSPACE w/ QUEUES:
+- Partial flag off, all tasks that CAN be migrated to SCHED_EXT, WILL be:
+- Run time: 6.98 seconds (+/-0.5)
+    - Data points sent to userspace: 718
+    - Data points returned back to kernelspace: 712
+    - Number of enqueues into the SCHED_EXT scheduler: 56
+    - Elapsed time statistics (milliseconds)
+        > Mean:                  736.9392325578035
+        > Median:                875.7805600
+        > Min:                     3.3826800
+        > Max:                  1768.7849400
+        > Standard Deviation:    433.1925990121642
+- Partial flag on:
+    - Only 1 task is being scheduled by SCHED_EXT, the userspace runner process,
+    because it invoked sched_setscheduler().
+- Run time: 6.95 seconds (+/-0.5)
+    - Data points sent to userspace: 1497
+    - Data points returned back to kernelspace: 768
+    - Number of enqueues into the SCHED_EXT scheduler: 10
+    - Elapsed time statistics (milliseconds)
+        > Mean:                 1006.5549004926764
+        > Median:               1038.0127100
+        > Min:                    55.5399800
+        > Max:                  1120.5541600
+        > Standard Deviation:    196.54315104058257
+KERNELSPACE w/ QUEUES:
+- Partial flag off, all tasks that CAN be migrated to SCHED_EXT, WILL be:
+- Run time: 5.08 seconds (+/-0.5)
+    - Data points processed in kernelspace: 699
+    - Number of enqueues into the SCHED_EXT scheduler: 51
+    - Elapsed time statistics (milliseconds)
+        > Mean:                        1.3651576642
+        > Median:                      0.3410000000
+        > Min:                         0.1220000000
+        > Max:                        39.7610000000
+        > Standard Deviation:          3.5953932755
+- Partial flag on:
+    - Only 1 task is being scheduled by SCHED_EXT, the userspace runner process,
+    because it invoked sched_setscheduler().
+- Run time: 5.08 seconds (+/-0.5)
+    - Data points processed in kernelspace: 556
+    - Number of enqueues into the SCHED_EXT scheduler: 38
+    - Elapsed time statistics (milliseconds)
+        > Mean:                        1.6926965265
+        > Median:                      0.3950000000
+        > Min:                         0.1090000000
+        > Max:                        70.5550000000
+        > Standard Deviation:          5.4389335550
+--------- 10 TASKS SPAWNED ----------

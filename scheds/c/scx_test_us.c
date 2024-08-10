@@ -65,6 +65,9 @@ int main(int argc, char **argv)
     }
 restart:
 	skel = SCX_OPS_OPEN(test_us_ops, scx_test_us);
+	
+	SCX_OPS_LOAD(skel, test_us_ops, scx_test_us, uei);
+	link = SCX_OPS_ATTACH(skel, test_us_ops, scx_test_us);
 
 	skel->rodata->usertask_pid = getpid();
 	assert(skel->rodata->usertask_pid > 0);
@@ -83,21 +86,19 @@ restart:
 		}
 	}
 
-	SCX_OPS_LOAD(skel, test_us_ops, scx_test_us, uei);
-	link = SCX_OPS_ATTACH(skel, test_us_ops, scx_test_us);
-
 	while (!exit_req && !UEI_EXITED(skel, uei)) {
 		// printf("Working\n");
-		struct time_datum td;
-		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.time_data_finalized), NULL, &td) == 0) {
+		struct struct_data final_data;
+		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.finalized), NULL, &final_data) == 0) {
 			// printf("Time taken: %ld\n", td.elapsed_ns);
-			printf("%ld\n", td.elapsed_ns);
+			// printf("Start: %ld, End: %ld, Elapsed: %ld\n", final_data.time_start, final_data.time_end, final_data.elapsed_ns);
+			printf("%ld\n", final_data.elapsed_ns);
 		}
-		u64 input;
+		struct struct_data input;
 		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.sent), NULL, &input) == 0) {
 			// printf("Value polled: %ld | ", input);
-			u64 result = test_operation(input);
-			if (bpf_map_update_elem(bpf_map__fd(skel->maps.returned), NULL, &result, 0) == 0) {
+			input.data = test_operation(input.data);
+			if (bpf_map_update_elem(bpf_map__fd(skel->maps.returned), NULL, &input, 0) == 0) {
 				// printf("Value sent back: %ld | ", result);
 			}
 		}
@@ -105,7 +106,11 @@ restart:
 		fflush(stdout);
 		sleep(1);
 	}
-
+	printf("Sent: %ld Returned: %ld\n", skel->bss->nr_sent, skel->bss->nr_returned);
+	bool other_task = skel->bss->other_task == 1;
+	printf(other_task ? "Other tasks? Yes" : "Other tasks? No");
+	printf("Number of enqueues: %ld", skel->bss->nr_enqueued);
+	
 	bpf_link__destroy(link);
 	ecode = UEI_REPORT(skel, uei);
 	scx_test_us__destroy(skel);
