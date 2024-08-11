@@ -11,7 +11,8 @@ compile this file with:
 gcc -o fork_spawn fork_spawn.c
 */
 
-#define NUM_PROCESSES 60
+#define NUM_PROCESSES_1 60
+#define NUM_PROCESSES_2 10
 #define SCHED_EXT 7 // Replace this with the actual value for SCHED_EXT if it's defined differently
 
 void countdown(int seconds)
@@ -27,9 +28,6 @@ void countdown(int seconds)
 
 int main()
 {
-    pid_t pids[NUM_PROCESSES];
-    int process_args[NUM_PROCESSES];
-
     // printf("Countdown before creating processes:\n");
     countdown(12);
 
@@ -42,7 +40,9 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-    for (int i = 0; i < NUM_PROCESSES; ++i)
+    pid_t pids[NUM_PROCESSES_1];
+    int process_args[NUM_PROCESSES_1];
+    for (int i = 0; i < NUM_PROCESSES_1; ++i)
     {
         process_args[i] = i;
         pids[i] = fork();
@@ -67,10 +67,51 @@ int main()
     }
 
     // Parent process waits for all child processes to finish
-    for (int i = 0; i < NUM_PROCESSES; ++i)
+    for (int i = 0; i < NUM_PROCESSES_1; ++i)
     {
         int status;
         waitpid(pids[i], &status, 0);
+        if (WIFEXITED(status))
+        {
+            // printf("Process %d exited with status %d.\n", i, WEXITSTATUS(status));
+        }
+        else
+        {
+            // printf("Process %d did not exit normally.\n", i);
+        }
+    }
+    countdown(12);
+    pid_t pids_2[NUM_PROCESSES_2];
+    int process_args_2[NUM_PROCESSES_2];
+    for (int i = 0; i < NUM_PROCESSES_2; ++i)
+    {
+        process_args_2[i] = i;
+        pids_2[i] = fork();
+        if (pids_2[i] < 0)
+        {
+            // Fork failed
+            // fprintf(stderr, "Error forking process %d: %s\n", i, strerror(errno));
+            exit(EXIT_FAILURE);
+        }
+        else if (pids_2[i] == 0)
+        {
+            // Child process
+            char process_num_str[10];
+            snprintf(process_num_str, sizeof(process_num_str), "%d", process_args_2[i]);
+            char *args[] = {"./child", process_num_str, NULL};
+            execv(args[0], args);
+
+            // If execv returns, there was an error
+            // fprintf(stderr, "Error executing child process %d: %s\n", i, strerror(errno));
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    // Parent process waits for all child processes to finish
+    for (int i = 0; i < NUM_PROCESSES_2; ++i)
+    {
+        int status;
+        waitpid(pids_2[i], &status, 0);
         if (WIFEXITED(status))
         {
             // printf("Process %d exited with status %d.\n", i, WEXITSTATUS(status));

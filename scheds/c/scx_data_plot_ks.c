@@ -69,8 +69,8 @@ restart:
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     time_t time_prev = ts.tv_sec;
-    u32 num_tasks_enqueued_prev = 0;
-    u32 num_tasks_enqueued = 0;
+    u32 num_tasks_prev = 0;
+    u32 num_tasks = 0;
     float sum_elapsed_time = 0;
     u32 num_data_points = 0;
     time_t interval_ns = 1;
@@ -80,12 +80,12 @@ restart:
             // printf("%ld, %ld\n", time_prev, ts_n.tv_nsec);
             // printf("%ld - %ld = %ld\n", ts.tv_sec, time_prev, ts.tv_sec - time_prev);
             if ((ts.tv_sec - time_prev) >= interval_ns) { // has 0.1 seconds passed?
-                num_tasks_enqueued = skel->bss->nr_enqueued;
+                num_tasks = skel->bss->nr_tasks;
                 float average_elapsed_ns = sum_elapsed_time / num_data_points;
-                int enqueued = num_tasks_enqueued - num_tasks_enqueued_prev;
-                printf("%ld, %d, %.2f, %d\n", ts.tv_sec, num_data_points, average_elapsed_ns, enqueued);
+                int tasks = num_tasks - num_tasks_prev;
+                printf("%ld, %d, %.2f, %d\n", ts.tv_sec, num_data_points, average_elapsed_ns, num_tasks);
                 // printf("%ld, %d", ts.tv_nsec);
-                num_tasks_enqueued_prev = num_tasks_enqueued;
+                num_tasks_prev = num_tasks;
                 sum_elapsed_time = 0;
                 num_data_points = 0;
                 time_prev += interval_ns;

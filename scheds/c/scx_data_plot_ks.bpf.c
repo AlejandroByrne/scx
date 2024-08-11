@@ -6,6 +6,7 @@ char _license[] SEC("license") = "GPL";
 volatile s32 usertask_pid;
 volatile u32 other_task;
 volatile u64 nr_enqueued;
+volatile u64 nr_tasks;
 volatile u64 time_start;
 
 volatile u64 nr_sent;
@@ -15,11 +16,22 @@ UEI_DEFINE(uei);
 
 #define SHARED_DSQ 0
 
+#define EXIT_ZOMBIE 0x00000020
+#define EXIT_DEAD 0x00000010
+#define TASK_DEAD 0x00000080
+
 struct {
 	__uint(type, BPF_MAP_TYPE_QUEUE);
 	__uint(max_entries, 1024);
 	__type(value, struct struct_data);
 } finalized SEC(".maps");
+
+struct {
+        __uint(type, BPF_MAP_TYPE_LRU_HASH);
+        __uint(max_entries, 1024);
+        __type(key, pid_t);
+        __type(value, u64);
+} tasks_hm SEC(".maps");
 
 static u64 test_operation(u64 num) {
 	// time start
@@ -49,6 +61,20 @@ s32 BPF_STRUCT_OPS(data_plot_ks_select_cpu, struct task_struct *p, s32 prev_cpu,
 void BPF_STRUCT_OPS(data_plot_ks_enqueue, struct task_struct *p, u64 enq_flags)
 {
 	__sync_fetch_and_add(&nr_enqueued, 1);
+	// Check if this specific task has been seen before, if not, increment counter and add to HM
+	pid_t pid = p->pid;
+	u64 start_time = p->start_time;
+	u64 * value = bpf_map_lookup_elem(&tasks_hm, &pid);
+	if (value != NULL) {
+		if (*value != start_time) {
+			bpf_map_update_elem(&tasks_hm, &pid, &start_time, BPF_NOEXIST);
+			__sync_fetch_and_add(&nr_tasks, 1);
+		}
+	} else {
+		bpf_map_update_elem(&tasks_hm, &pid, &start_time, BPF_NOEXIST);
+		__sync_fetch_and_add(&nr_tasks, 1);
+	}
+
 	if (is_user_task(p)) {
 		// user-space task skips the line
 		scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL, enq_flags);
@@ -89,6 +115,11 @@ void BPF_STRUCT_OPS(data_plot_ks_running, struct task_struct *p)
 
 void BPF_STRUCT_OPS(data_plot_ks_stopping, struct task_struct *p, bool runnable)
 {
+	pid_t pid = p->pid;
+	if (p->exit_state == EXIT_ZOMBIE || p->exit_state == EXIT_DEAD || p->__state == TASK_DEAD) {
+		bpf_map_delete_elem(&tasks_hm, &pid);
+		__sync_fetch_and_sub(&nr_tasks, 1);
+	}
 	return;
 }
 
