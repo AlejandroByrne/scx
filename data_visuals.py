@@ -12,12 +12,13 @@ def read_data(filename):
         sys.exit(1)
 
 def main():
-    if len(sys.argv) != 3:
-        print("Usage: python script_name.py <input_file> <output_image>")
+    if len(sys.argv) < 3:
+        print("Usage: python script_name.py <input_file> <output_image> <title>")
         sys.exit(1)
 
     input_file = sys.argv[1]
     output_image = sys.argv[2]
+    title = " ".join(sys.argv[3:])
 
     # Read data from the input file
     df = read_data(input_file)
@@ -32,17 +33,30 @@ def main():
     max_val = df['average elapsed microseconds'].max()
     std_dev_val = df['average elapsed microseconds'].std()
 
-    # Plot the data
-    plt.figure(figsize=(10, 6))
-    plt.plot(df['Time'], df['# of data points'], label='# of data points', marker='o')
-    plt.plot(df['Time'], df['average elapsed microseconds'], label='average elapsed microseconds', marker='o')
-    plt.plot(df['Time'], df['# of tasks enqueued'], label='# of tasks enqueued', marker='o')
+    # Create a figure and axis
+    fig, ax1 = plt.subplots(figsize=(10, 6))
 
-    plt.xlabel('Time')
-    plt.ylabel('Values')
-    plt.title('Metrics Over Time')
-    plt.legend()
-    plt.grid(True)
+    # Plot the first line
+    ax1.plot(df['Time'], df['# of data points'], label='# of data points', color='b', marker='o')
+    ax1.set_xlabel('Time')
+    ax1.set_ylabel('# of data points', color='b')
+    ax1.tick_params(axis='y', labelcolor='b')
+
+    # Create a second y-axis sharing the same x-axis
+    ax2 = ax1.twinx()
+    ax2.plot(df['Time'], df['average elapsed microseconds'], label='average elapsed microseconds', color='g', marker='o')
+    ax2.set_ylabel('average elapsed microseconds', color='g')
+    ax2.tick_params(axis='y', labelcolor='g')
+
+    # Create a third y-axis sharing the same x-axis
+    ax3 = ax1.twinx()
+    ax3.spines['right'].set_position(('outward', 60))  # Offset the third axis
+    ax3.plot(df['Time'], df['# of tasks enqueued'], label='# of tasks enqueued', color='r', marker='o')
+    ax3.set_ylabel('# of tasks enqueued', color='r')
+    ax3.tick_params(axis='y', labelcolor='r')
+
+    # Add a title
+    plt.title(title)
 
     # Add statistics to the plot as text
     stats_text = (
@@ -57,6 +71,7 @@ def main():
     plt.gcf().text(0.15, 0.6, stats_text, fontsize=10, bbox=dict(facecolor='white', alpha=0.5))
 
     # Save plot to an image file specified by the second argument
+    fig.tight_layout()  # Adjust layout to make room for the y-axis labels
     plt.savefig(output_image)
     plt.show()
 
