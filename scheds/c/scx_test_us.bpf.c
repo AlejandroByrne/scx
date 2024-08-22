@@ -37,7 +37,6 @@ volatile u64 nr_errors;
 UEI_DEFINE(uei);
 
 #define SHARED_DSQ 0
-#define WAITING_DSQ 1
 
 struct {
 	__uint(type, BPF_MAP_TYPE_QUEUE);
@@ -78,7 +77,7 @@ s32 BPF_STRUCT_OPS(test_us_select_cpu, struct task_struct *p, s32 prev_cpu, u64 
 
 void BPF_STRUCT_OPS(test_us_enqueue, struct task_struct *p, u64 enq_flags)
 {
-	if (is_user_task(p) && user_task_needed) {
+	if (is_user_task(p)) {
 		scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL, enq_flags);
 		return;
 	}
@@ -94,9 +93,12 @@ void BPF_STRUCT_OPS(test_us_enqueue, struct task_struct *p, u64 enq_flags)
 
 void BPF_STRUCT_OPS(test_us_dispatch, s32 cpu, struct task_struct *prev)
 {
-	scx_bpf_consume(SHARED_DSQ);
-	__sync_fetch_and_add(&nr_queues, 1);
-	bpf_repeat(32) {
+	if (scx_bpf_consume(SHARED_DSQ) == false) {
+		
+	} else {
+		__sync_fetch_and_add(&nr_queues, 1);
+	}
+	bpf_repeat(256) {
 		// no ready tasks available to consume, poll for results from user space
 		struct struct_data data;
 		if (bpf_map_pop_elem(&returned, &data) == 0) {
@@ -111,7 +113,8 @@ void BPF_STRUCT_OPS(test_us_dispatch, s32 cpu, struct task_struct *prev)
 			} else {
 				__sync_fetch_and_add(&nr_missed, 1);
 			}
-			
+		} else {
+			break;
 		}
 	}
 }
@@ -136,14 +139,12 @@ void BPF_STRUCT_OPS(test_us_enable, struct task_struct *p)
 
 s32 BPF_STRUCT_OPS_SLEEPABLE(test_us_init)
 {
-	scx_bpf_create_dsq(WAITING_DSQ, -1);
 	return scx_bpf_create_dsq(SHARED_DSQ, -1);
 }
 
 void BPF_STRUCT_OPS(test_us_exit, struct scx_exit_info *ei)
 {
 	scx_bpf_destroy_dsq(SHARED_DSQ);
-	scx_bpf_destroy_dsq(WAITING_DSQ);
 	UEI_RECORD(uei, ei);
 }
 

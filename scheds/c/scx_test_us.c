@@ -113,6 +113,8 @@ restart:
 			input.data = test_operation(input.data);
 			if (bpf_map_update_elem(bpf_map__fd(skel->maps.returned), NULL, &input, 0) == 0) {
 				// printf("Value sent back: %ld | ", result);
+			} else {
+				printf("Task failed to be sent back\n");
 			}
 		}
 		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.finalized), NULL, &input) == 0) {
