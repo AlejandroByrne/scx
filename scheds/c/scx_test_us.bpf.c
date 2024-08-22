@@ -25,30 +25,30 @@
 
 char _license[] SEC("license") = "GPL";
 
-const volatile s32 usertask_pid;
+volatile s32 usertask_pid;
 
-volatile u32 other_task;
-volatile u64 nr_enqueued;
-
-static volatile s32 user_task_needed;
+volatile s32 user_task_needed;
 volatile u64 nr_returned;
 volatile u64 nr_sent;
-static u64 time_prev;
+volatile u64 nr_missed;
+volatile u64 nr_queues;
+volatile u64 nr_errors;
 
 UEI_DEFINE(uei);
 
 #define SHARED_DSQ 0
+#define WAITING_DSQ 1
 
 struct {
 	__uint(type, BPF_MAP_TYPE_QUEUE);
 	__uint(max_entries, 1024);
-	__type(value, u64);
+	__type(value, struct struct_data);
 } sent SEC(".maps");
 
 struct {
 	__uint(type, BPF_MAP_TYPE_QUEUE);
 	__uint(max_entries, 1024);
-	__type(value, u64);
+	__type(value, struct struct_data);
 } returned SEC(".maps");
 
 struct {
@@ -56,21 +56,6 @@ struct {
 	__uint(max_entries, 1024);
 	__type(value, struct struct_data);
 } finalized SEC(".maps");
-
-// static struct task_struct *usersched_task(void)
-// {
-// 	struct task_struct *p;
-
-// 	p = bpf_task_from_pid(usertask_pid);
-// 	/*
-// 	 * Should never happen -- the usersched task should always be managed
-// 	 * by sched_ext.
-// 	 */
-// 	if (!p)
-// 		scx_bpf_error("Failed to find usersched task %d", usertask_pid);
-
-// 	return p;
-// }
 
 static bool is_user_task(const struct task_struct *p)
 {
@@ -84,8 +69,7 @@ s32 BPF_STRUCT_OPS(test_us_select_cpu, struct task_struct *p, s32 prev_cpu, u64 
 	s32 cpu;
 
 	cpu = scx_bpf_select_cpu_dfl(p, prev_cpu, wake_flags, &is_idle);
-	// Helps keep cores running with minimal downtime
-	if (is_idle && !is_user_task(p) && user_task_needed) {
+	if (user_task_needed && is_user_task(p)) {
 		scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL, 0);
 	}
 
@@ -94,65 +78,54 @@ s32 BPF_STRUCT_OPS(test_us_select_cpu, struct task_struct *p, s32 prev_cpu, u64 
 
 void BPF_STRUCT_OPS(test_us_enqueue, struct task_struct *p, u64 enq_flags)
 {
-	__sync_fetch_and_add(&nr_enqueued, 1);
-	// Only dispatch the userspace task if it is needed
-	if (is_user_task(p)) {
-		if (user_task_needed) {
-			scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL, enq_flags);
-		} else {
-			return;
-		}
-	} else {
-		__sync_fetch_and_or(&other_task, 1);
-		scx_bpf_dispatch(p, SHARED_DSQ, SCX_SLICE_DFL, enq_flags);
+	if (is_user_task(p) && user_task_needed) {
+		scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL, enq_flags);
+		return;
 	}
-	
+	// Send data
+	struct struct_data data = {.pid = p->pid, .data = p->recent_used_cpu, .time_start = bpf_ktime_get_ns()};
+	if (bpf_map_push_elem(&sent, &data, 0) == 0) {
+		__sync_fetch_and_add(&nr_sent, 1);
+	} else {
+		__sync_fetch_and_add(&nr_errors, 1);
+	}
+	__sync_fetch_and_or(&user_task_needed, 1);
 }
 
 void BPF_STRUCT_OPS(test_us_dispatch, s32 cpu, struct task_struct *prev)
 {
 	scx_bpf_consume(SHARED_DSQ);
+	__sync_fetch_and_add(&nr_queues, 1);
+	bpf_repeat(32) {
+		// no ready tasks available to consume, poll for results from user space
+		struct struct_data data;
+		if (bpf_map_pop_elem(&returned, &data) == 0) {
+			struct struct_data final = {.time_end = bpf_ktime_get_ns(), .data=data.data, .time_start=data.time_start, .pid = data.pid};
+			final.elapsed_ns = final.time_end - final.time_start;
+			struct task_struct * p = bpf_task_from_pid(final.pid);
+			if (p) {
+				scx_bpf_dispatch(p, SCX_DSQ_GLOBAL, SCX_SLICE_DFL, 0);
+				bpf_task_release(p);
+				__sync_fetch_and_add(&nr_returned, 1);
+				bpf_map_push_elem(&finalized, &final, 0);
+			} else {
+				__sync_fetch_and_add(&nr_missed, 1);
+			}
+			
+		}
+	}
 }
 
 void BPF_STRUCT_OPS(test_us_running, struct task_struct *p)
 {
-	// Check the inbox!
-	struct struct_data returned_value;
-	bpf_repeat(16) { // parameter indicates the maximum loop iterations, since it breaks if there is nothing to poll
-		if (bpf_map_pop_elem(&returned, &returned_value) < 0) {
-			break;
-		}
-		returned_value.time_end = bpf_ktime_get_ns();
-		returned_value.elapsed_ns = returned_value.time_end - returned_value.time_start;
-		bpf_map_push_elem(&finalized, &returned_value, 0);
-		__sync_fetch_and_add(&nr_returned, 1);
+	if (nr_sent == nr_returned) {
+		__sync_fetch_and_or(&user_task_needed, 0);
 	}
-	__sync_fetch_and_or(&user_task_needed, 0);
-	/* TODO
-	Find a more efficient way of calculating if approximately 1 second has passed
-	Use bit manipulation for the check.
-	*/
-	// if (bpf_ktime_get_ns() - time_prev >= 1000000000) { // have 1000000000 nanoseconds passed?
-		// Fill the ringbuffer with some input for the user-space task to poll (just a number to indicate that a second has passed)
-		struct struct_data data = {.time_start=bpf_ktime_get_ns(), .data = 10};
-		if (bpf_map_push_elem(&sent, &data, 0) == 0) {
-			__sync_fetch_and_add(&nr_sent, 1);
-			__sync_fetch_and_or(&user_task_needed, 1);
-		}
-		time_prev = bpf_ktime_get_ns();
-	// }
-
-	//if (user_task_needed) dispatch_user_scheduler();
 	return;
 }
 
 void BPF_STRUCT_OPS(test_us_stopping, struct task_struct *p, bool runnable)
 {
-	if (nr_sent > nr_returned) {
-		__sync_fetch_and_or(&user_task_needed, 1);
-	} else {
-		__sync_fetch_and_or(&user_task_needed, 0);
-	}
 	return;
 }
 
@@ -163,13 +136,14 @@ void BPF_STRUCT_OPS(test_us_enable, struct task_struct *p)
 
 s32 BPF_STRUCT_OPS_SLEEPABLE(test_us_init)
 {
-	__sync_fetch_and_or(&other_task, 0);
+	scx_bpf_create_dsq(WAITING_DSQ, -1);
 	return scx_bpf_create_dsq(SHARED_DSQ, -1);
 }
 
 void BPF_STRUCT_OPS(test_us_exit, struct scx_exit_info *ei)
 {
 	scx_bpf_destroy_dsq(SHARED_DSQ);
+	scx_bpf_destroy_dsq(WAITING_DSQ);
 	UEI_RECORD(uei, ei);
 }
 

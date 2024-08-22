@@ -12,6 +12,7 @@
 #include <scx/common.h>
 #include <assert.h>
 #include <sched.h>
+#include <time.h>
 #include "scx_test_us.bpf.skel.h"
 #include "scx_test_ks.h"
 
@@ -69,8 +70,8 @@ restart:
 	SCX_OPS_LOAD(skel, test_us_ops, scx_test_us, uei);
 	link = SCX_OPS_ATTACH(skel, test_us_ops, scx_test_us);
 
-	skel->rodata->usertask_pid = getpid();
-	assert(skel->rodata->usertask_pid > 0);
+	skel->bss->usertask_pid = getpid();
+	assert(skel->bss->usertask_pid > 0);
 
 	while ((opt = getopt(argc, argv, "vhp")) != -1) {
 		switch (opt) {
@@ -86,15 +87,27 @@ restart:
 		}
 	}
 
+	struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    time_t time_prev = ts.tv_sec;
+    float sum_elapsed_time = 0;
+    u32 num_data_points = 0;
+    time_t interval_ns = 1;
 	while (!exit_req && !UEI_EXITED(skel, uei)) {
-		// printf("Working\n");
-		struct struct_data final_data;
-		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.finalized), NULL, &final_data) == 0) {
-			// printf("Time taken: %ld\n", td.elapsed_ns);
-			// printf("Start: %ld, End: %ld, Elapsed: %ld\n", final_data.time_start, final_data.time_end, final_data.elapsed_ns);
-			printf("%ld\n", final_data.elapsed_ns);
-		}
-		struct struct_data input;
+		//printf("Working\n");
+        if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+            // printf("%ld, %ld\n", time_prev, ts_n.tv_nsec);
+            // printf("%ld - %ld = %ld\n", ts.tv_sec, time_prev, ts.tv_sec - time_prev);
+            if ((ts.tv_sec - time_prev) >= interval_ns) {
+                float average_elapsed_ns = sum_elapsed_time / num_data_points;
+                printf("%ld, %d, %.2f\n", ts.tv_sec, num_data_points, average_elapsed_ns);
+                // printf("%ld, %d", ts.tv_nsec);
+                sum_elapsed_time = 0;
+                num_data_points = 0;
+                time_prev += interval_ns;
+            }
+        }
+        struct struct_data input;
 		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.sent), NULL, &input) == 0) {
 			// printf("Value polled: %ld | ", input);
 			input.data = test_operation(input.data);
@@ -102,15 +115,18 @@ restart:
 				// printf("Value sent back: %ld | ", result);
 			}
 		}
-		// printf("Sent: %ld Returned: %ld\n", skel->bss->nr_sent, skel->bss->nr_returned);
+		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.finalized), NULL, &input) == 0) {
+			num_data_points++;
+			// printf("%ld\n", input.elapsed_ns);
+            sum_elapsed_time += (float) input.elapsed_ns / 100000; // convert to milliseconds
+		}
+
 		fflush(stdout);
-		sleep(1);
+		//sleep(1);
 	}
-	printf("Sent: %ld Returned: %ld\n", skel->bss->nr_sent, skel->bss->nr_returned);
-	bool other_task = skel->bss->other_task == 1;
-	printf(other_task ? "Other tasks? Yes" : "Other tasks? No");
-	printf("Number of enqueues: %ld", skel->bss->nr_enqueued);
-	
+	printf("Sent: %ld Returned: %ld Missed: %ld\n", skel->bss->nr_sent, skel->bss->nr_returned, skel->bss->nr_missed);
+	printf("Number of enqueues: %ld\n", skel->bss->nr_queues);
+	printf("Number of errors: %ld\n", skel->bss->nr_errors);
 	bpf_link__destroy(link);
 	ecode = UEI_REPORT(skel, uei);
 	scx_test_us__destroy(skel);

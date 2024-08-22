@@ -12,6 +12,7 @@
 #include <scx/common.h>
 #include <assert.h>
 #include <sched.h>
+#include <time.h>
 #include "scx_test_ks.bpf.skel.h"
 #include "scx_test_ks.h"
 
@@ -55,9 +56,6 @@ restart:
 	SCX_OPS_LOAD(skel, test_ks_ops, scx_test_ks, uei);
 	link = SCX_OPS_ATTACH(skel, test_ks_ops, scx_test_ks);
 
-	skel->bss->usertask_pid = getpid();
-	assert(skel->bss->usertask_pid > 0);
-
 	while ((opt = getopt(argc, argv, "vhp")) != -1) {
 		switch (opt) {
 		case 'v':
@@ -71,18 +69,35 @@ restart:
 		}
 	}
 
+	struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    time_t time_prev = ts.tv_sec;
+    float sum_elapsed_time = 0;
+    u32 num_data_points = 0;
+    time_t interval_ns = 1;
 	while (!exit_req && !UEI_EXITED(skel, uei)) {
 		//printf("Working\n");
+        if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+            // printf("%ld, %ld\n", time_prev, ts_n.tv_nsec);
+            // printf("%ld - %ld = %ld\n", ts.tv_sec, time_prev, ts.tv_sec - time_prev);
+            if ((ts.tv_sec - time_prev) >= interval_ns) {
+                float average_elapsed_ns = sum_elapsed_time / num_data_points;
+                printf("%ld, %d, %.2f\n", ts.tv_sec, num_data_points, average_elapsed_ns);
+                // printf("%ld, %d", ts.tv_nsec);
+                sum_elapsed_time = 0;
+                num_data_points = 0;
+                time_prev += interval_ns;
+            }
+        }
 		struct struct_data input;
 		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.finalized), NULL, &input) == 0) {
-			printf("%ld\n", input.elapsed_ns);
+			num_data_points++;
+            sum_elapsed_time += (float) input.elapsed_ns / 100000; // convert to microseconds
 		}
 		fflush(stdout);
 		sleep(1);
 	}
 	printf("Sent: %ld\n", skel->bss->nr_sent);
-	bool other_task = skel->bss->other_task == 1;
-	printf(other_task ? "Other tasks? Yes" : "Other tasks? No");
 	printf("Number of enqueues: %ld\n", skel->bss->nr_enqueued);
 	bpf_link__destroy(link);
 	ecode = UEI_REPORT(skel, uei);

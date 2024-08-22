@@ -25,12 +25,9 @@
 
 char _license[] SEC("license") = "GPL";
 
-volatile s32 usertask_pid;
-volatile u32 other_task;
 volatile u64 nr_enqueued;
 
 volatile u64 nr_sent;
-static u64 time_prev;
 
 UEI_DEFINE(uei);
 
@@ -49,35 +46,28 @@ static u64 test_operation(u64 num) {
 	return result;
 }
 
-static bool is_user_task(const struct task_struct *p)
-{
-	return p->pid == usertask_pid;
-}
-
 s32 BPF_STRUCT_OPS(test_ks_select_cpu, struct task_struct *p, s32 prev_cpu, u64 wake_flags)
 {
 	bool is_idle = false;
 	s32 cpu;
 
 	cpu = scx_bpf_select_cpu_dfl(p, prev_cpu, wake_flags, &is_idle);
-	if (is_idle) {
-		scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL, 0);
-	}
 
 	return cpu;
 }
 
 void BPF_STRUCT_OPS(test_ks_enqueue, struct task_struct *p, u64 enq_flags)
 {
-	__sync_fetch_and_add(&nr_enqueued, 1);
-	if (is_user_task(p)) {
-		// user-space task skips the line
-		scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL, enq_flags);
-	} else {
-		__sync_fetch_and_or(&other_task, 1);
-		scx_bpf_dispatch(p, SHARED_DSQ, SCX_SLICE_DFL, enq_flags);
-	}
-	
+	// Send data
+	struct struct_data data = {.data = p->recent_used_cpu, .time_start = bpf_ktime_get_ns()};
+	// Wait for response
+	u64 result = test_operation(data.data);
+	data.time_end = bpf_ktime_get_ns();
+	data.elapsed_ns = data.time_end - data.time_start;
+	bpf_map_push_elem(&finalized, &data, 0);
+	__sync_fetch_and_add(&nr_sent, 1);
+	// Dispatch
+	scx_bpf_dispatch(p, SHARED_DSQ, SCX_SLICE_DFL, enq_flags);
 }
 
 void BPF_STRUCT_OPS(test_ks_dispatch, s32 cpu, struct task_struct *prev)
@@ -87,23 +77,6 @@ void BPF_STRUCT_OPS(test_ks_dispatch, s32 cpu, struct task_struct *prev)
 
 void BPF_STRUCT_OPS(test_ks_running, struct task_struct *p)
 {
-	/* TODO
-	Find a more efficient way of calculating if approximately 1 second has passed
-	Use bit manipulation for the check.
-	*/
-	// if (bpf_ktime_get_ns() - time_prev >= 1000000000) { // have 1000000000 nanoseconds passed?
-		// Fill the ringbuffer with some input for the user-space task to poll (just a number to indicate that a second has passed)
-		struct struct_data data = {.time_start = bpf_ktime_get_ns(), .data = 10};
-		data.data = test_operation(data.data);
-		data.time_end = bpf_ktime_get_ns();
-		data.elapsed_ns = data.time_end - data.time_start;
-		if (bpf_map_push_elem(&finalized, &data, 0) == 0) {
-			__sync_fetch_and_add(&nr_sent, 1);
-		}
-		time_prev = bpf_ktime_get_ns();
-	// }
-
-	//if (user_task_needed) dispatch_user_scheduler();
 	return;
 }
 
@@ -119,7 +92,6 @@ void BPF_STRUCT_OPS(test_ks_enable, struct task_struct *p)
 
 s32 BPF_STRUCT_OPS_SLEEPABLE(test_ks_init)
 {
-	__sync_fetch_and_or(&other_task, 0);
 	return scx_bpf_create_dsq(SHARED_DSQ, -1);
 }
 
