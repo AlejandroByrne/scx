@@ -64,6 +64,8 @@ int main(int argc, char **argv)
         // fprintf(stderr, "Error setting scheduler for process %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
+	printf("PID: %d\n", getpid());
+	getchar();
 restart:
 	skel = SCX_OPS_OPEN(test_us_ops, scx_test_us);
 	
@@ -74,9 +76,6 @@ restart:
 	assert(skel->bss->usertask_pid > 0);
 	
 	struct timespec ts;
-
-	clock_gettime(CLOCK_MONOTONIC, &ts);
-	skel->bss->start_time = ((u64) ts.tv_sec * 1000000000ULL) + ts.tv_nsec;
 
 	while ((opt = getopt(argc, argv, "vhp")) != -1) {
 		switch (opt) {
@@ -100,18 +99,21 @@ restart:
     time_t interval_ns = 1;
 	while (!exit_req && !UEI_EXITED(skel, uei)) {
 		//printf("Working\n");
-        if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
-            // printf("%ld, %ld\n", time_prev, ts_n.tv_nsec);
-            // printf("%ld - %ld = %ld\n", ts.tv_sec, time_prev, ts.tv_sec - time_prev);
-            if ((ts.tv_sec - time_prev) >= interval_ns) {
-                float average_elapsed_ns = sum_elapsed_time / num_data_points;
-                printf("%ld, %d, %.2f\n", ts.tv_sec, num_data_points, average_elapsed_ns);
-                // printf("%ld, %d", ts.tv_nsec);
-                sum_elapsed_time = 0;
-                num_data_points = 0;
-                time_prev += interval_ns;
-            }
-        }
+
+		// Collecting statistics and printing to STDOUT
+        // if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+        //     // printf("%ld, %ld\n", time_prev, ts_n.tv_nsec);
+        //     // printf("%ld - %ld = %ld\n", ts.tv_sec, time_prev, ts.tv_sec - time_prev);
+        //     if ((ts.tv_sec - time_prev) >= interval_ns) {
+        //         float average_elapsed_ns = sum_elapsed_time / num_data_points;
+        //         printf("%ld, %d, %.2f\n", ts.tv_sec, num_data_points, average_elapsed_ns);
+        //         // printf("%ld, %d", ts.tv_nsec);
+        //         sum_elapsed_time = 0;
+        //         num_data_points = 0;
+        //         time_prev += interval_ns;
+        //     }
+        // }
+		// Collect data, process it, and send it back to kernel space
         struct struct_data input;
 		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.sent), NULL, &input) == 0) {
 			// printf("Value polled: %ld | ", input);
@@ -131,16 +133,16 @@ restart:
 		fflush(stdout);
 		//sleep(1);
 	}
-	clock_gettime(CLOCK_MONOTONIC, &ts);
-	skel->bss->end_time = ((u64) ts.tv_sec * 1000000000ULL) + ts.tv_nsec;
-	skel->bss->total_time = skel->bss->end_time - skel->bss->start_time;
-	double running_ratio = skel->bss->total_running_time / skel->bss->total_time;
-	printf("User space task running time ratio: %f\n", running_ratio);
+
 	printf("Sent: %ld Returned: %ld Missed: %ld\n", skel->bss->nr_sent, skel->bss->nr_returned, skel->bss->nr_missed);
 	printf("Number of enqueues: %ld\n", skel->bss->nr_queues);
 	printf("Number of errors: %ld\n", skel->bss->nr_errors);
 	bpf_link__destroy(link);
 	ecode = UEI_REPORT(skel, uei);
+	double running_ratio = (double) skel->bss->total_running_time / (skel->bss->total_time);
+	printf("Num running: %lu, Num stopping: %lu\n", skel->bss->num_running, skel->bss->num_stopping);
+	printf("Total running time (ns): %lu, Total time (ns): %lu\n", skel->bss->total_running_time, skel->bss->total_time);
+	printf("User space task running time ratio: %f\n", running_ratio);
 	scx_test_us__destroy(skel);
 
 	if (UEI_ECODE_RESTART(ecode))

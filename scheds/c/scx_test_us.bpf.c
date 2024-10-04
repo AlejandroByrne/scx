@@ -38,6 +38,8 @@ volatile u64 nr_sent;
 volatile u64 nr_missed;
 volatile u64 nr_queues;
 volatile u64 nr_errors;
+volatile u64 num_running;
+volatile u64 num_stopping;
 
 UEI_DEFINE(uei);
 
@@ -70,14 +72,16 @@ static bool is_user_task(const struct task_struct *p)
 
 s32 BPF_STRUCT_OPS(test_us_select_cpu, struct task_struct *p, s32 prev_cpu, u64 wake_flags)
 {
-	// bool is_idle = false;
-	// s32 cpu;
-	// cpu = scx_bpf_select_cpu_dfl(p, prev_cpu, wake_flags, &is_idle);
-	if (is_user_task(p)) {
-		scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL, 0);
+	if (is_user_task(p)) { // user space task isolated to cpu 4
+		return 4;
 	}
-
-	return 4;
+	bool is_idle = false;
+	s32 cpu;
+	cpu = scx_bpf_select_cpu_dfl(p, prev_cpu, wake_flags, &is_idle);
+	if (cpu == 4) { // ensure no other tasks get set to cpu 4
+		return cpu - 1;
+	}
+	return cpu;
 }
 
 void BPF_STRUCT_OPS(test_us_enqueue, struct task_struct *p, u64 enq_flags)
@@ -127,6 +131,8 @@ void BPF_STRUCT_OPS(test_us_running, struct task_struct *p)
 {
 	if (is_user_task(p)) {
 		running_start = bpf_ktime_get_ns();
+		// bpf_printk("Start: %llu\n", running_start);
+		__sync_fetch_and_add(&num_running, 1);
 	}
 	return;
 }
@@ -134,7 +140,12 @@ void BPF_STRUCT_OPS(test_us_running, struct task_struct *p)
 void BPF_STRUCT_OPS(test_us_stopping, struct task_struct *p, bool runnable)
 {
 	if (is_user_task(p)) {
-		total_running_time += (bpf_ktime_get_ns() - running_start);
+		// u64 time = bpf_ktime_get_ns();
+		u64 elapsed_time = (bpf_ktime_get_ns() - running_start) / 1000000ULL; // time in milliseconds
+		// bpf_printk("Stop: %llu\n", time);
+		total_running_time += elapsed_time;
+		// This is almost always 20 milliseconds
+		__sync_fetch_and_add(&num_stopping, 1);
 	}
 	return;
 }
@@ -146,11 +157,17 @@ void BPF_STRUCT_OPS(test_us_enable, struct task_struct *p)
 
 s32 BPF_STRUCT_OPS_SLEEPABLE(test_us_init)
 {
+	start_time = bpf_ktime_get_ns();
+	bpf_printk("Start time: %llu\n", start_time);
 	return scx_bpf_create_dsq(SHARED_DSQ, -1);
 }
 
 void BPF_STRUCT_OPS(test_us_exit, struct scx_exit_info *ei)
 {
+	end_time = bpf_ktime_get_ns();
+	total_time = end_time - start_time;
+	bpf_printk("End time: %llu\n", end_time);
+	bpf_printk("Total time: %llu\n", total_time);
 	scx_bpf_destroy_dsq(SHARED_DSQ);
 	UEI_RECORD(uei, ei);
 }
