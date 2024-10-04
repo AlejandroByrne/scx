@@ -25,9 +25,14 @@
 
 char _license[] SEC("license") = "GPL";
 
+volatile u64 start_time;
+volatile u64 end_time;
+volatile u64 running_start;
+volatile u64 total_time;
+volatile u64 total_running_time;
+
 volatile s32 usertask_pid;
 
-volatile s32 user_task_needed;
 volatile u64 nr_returned;
 volatile u64 nr_sent;
 volatile u64 nr_missed;
@@ -37,6 +42,7 @@ volatile u64 nr_errors;
 UEI_DEFINE(uei);
 
 #define SHARED_DSQ 0
+
 
 struct {
 	__uint(type, BPF_MAP_TYPE_QUEUE);
@@ -67,7 +73,7 @@ s32 BPF_STRUCT_OPS(test_us_select_cpu, struct task_struct *p, s32 prev_cpu, u64 
 	// bool is_idle = false;
 	// s32 cpu;
 	// cpu = scx_bpf_select_cpu_dfl(p, prev_cpu, wake_flags, &is_idle);
-	if (user_task_needed && is_user_task(p)) {
+	if (is_user_task(p)) {
 		scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL, 0);
 	}
 
@@ -87,7 +93,6 @@ void BPF_STRUCT_OPS(test_us_enqueue, struct task_struct *p, u64 enq_flags)
 	} else {
 		__sync_fetch_and_add(&nr_errors, 1);
 	}
-	__sync_fetch_and_or(&user_task_needed, 1);
 }
 
 void BPF_STRUCT_OPS(test_us_dispatch, s32 cpu, struct task_struct *prev)
@@ -105,7 +110,7 @@ void BPF_STRUCT_OPS(test_us_dispatch, s32 cpu, struct task_struct *prev)
 			final.elapsed_ns = final.time_end - final.time_start;
 			struct task_struct * p = bpf_task_from_pid(final.pid);
 			if (p) {
-				scx_bpf_dispatch(p, SCX_DSQ_GLOBAL, SCX_SLICE_DFL, 0);
+				scx_bpf_dispatch(p, SHARED_DSQ, SCX_SLICE_DFL, 0);
 				bpf_task_release(p);
 				__sync_fetch_and_add(&nr_returned, 1);
 				bpf_map_push_elem(&finalized, &final, 0);
@@ -120,14 +125,17 @@ void BPF_STRUCT_OPS(test_us_dispatch, s32 cpu, struct task_struct *prev)
 
 void BPF_STRUCT_OPS(test_us_running, struct task_struct *p)
 {
-	if (nr_sent == nr_returned) {
-		__sync_fetch_and_or(&user_task_needed, 0);
+	if (is_user_task(p)) {
+		running_start = bpf_ktime_get_ns();
 	}
 	return;
 }
 
 void BPF_STRUCT_OPS(test_us_stopping, struct task_struct *p, bool runnable)
 {
+	if (is_user_task(p)) {
+		total_running_time += (bpf_ktime_get_ns() - running_start);
+	}
 	return;
 }
 

@@ -72,6 +72,11 @@ restart:
 
 	skel->bss->usertask_pid = getpid();
 	assert(skel->bss->usertask_pid > 0);
+	
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	skel->bss->start_time = ((u64) ts.tv_sec * 1000000000ULL) + ts.tv_nsec;
 
 	while ((opt = getopt(argc, argv, "vhp")) != -1) {
 		switch (opt) {
@@ -87,7 +92,7 @@ restart:
 		}
 	}
 
-	struct timespec ts;
+	
     clock_gettime(CLOCK_MONOTONIC, &ts);
     time_t time_prev = ts.tv_sec;
     float sum_elapsed_time = 0;
@@ -126,6 +131,11 @@ restart:
 		fflush(stdout);
 		//sleep(1);
 	}
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	skel->bss->end_time = ((u64) ts.tv_sec * 1000000000ULL) + ts.tv_nsec;
+	skel->bss->total_time = skel->bss->end_time - skel->bss->start_time;
+	double running_ratio = skel->bss->total_running_time / skel->bss->total_time;
+	printf("User space task running time ratio: %f\n", running_ratio);
 	printf("Sent: %ld Returned: %ld Missed: %ld\n", skel->bss->nr_sent, skel->bss->nr_returned, skel->bss->nr_missed);
 	printf("Number of enqueues: %ld\n", skel->bss->nr_queues);
 	printf("Number of errors: %ld\n", skel->bss->nr_errors);
