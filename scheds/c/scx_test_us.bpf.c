@@ -64,15 +64,14 @@ static bool is_user_task(const struct task_struct *p)
 
 s32 BPF_STRUCT_OPS(test_us_select_cpu, struct task_struct *p, s32 prev_cpu, u64 wake_flags)
 {
-	bool is_idle = false;
-	s32 cpu;
-
-	cpu = scx_bpf_select_cpu_dfl(p, prev_cpu, wake_flags, &is_idle);
+	// bool is_idle = false;
+	// s32 cpu;
+	// cpu = scx_bpf_select_cpu_dfl(p, prev_cpu, wake_flags, &is_idle);
 	if (user_task_needed && is_user_task(p)) {
 		scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL, 0);
 	}
 
-	return cpu;
+	return 4;
 }
 
 void BPF_STRUCT_OPS(test_us_enqueue, struct task_struct *p, u64 enq_flags)
