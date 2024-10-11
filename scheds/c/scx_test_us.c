@@ -64,7 +64,7 @@ int main(int argc, char **argv)
         // fprintf(stderr, "Error setting scheduler for process %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
-	printf("PID: %d\n", getpid());
+	printf("PID: %d\nPlease press enter to continue", getpid());
 	getchar();
 restart:
 	skel = SCX_OPS_OPEN(test_us_ops, scx_test_us);
@@ -75,7 +75,7 @@ restart:
 	skel->bss->usertask_pid = getpid();
 	assert(skel->bss->usertask_pid > 0);
 	
-	struct timespec ts;
+	// struct timespec ts;
 
 	while ((opt = getopt(argc, argv, "vhp")) != -1) {
 		switch (opt) {
@@ -92,11 +92,11 @@ restart:
 	}
 
 	
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    time_t time_prev = ts.tv_sec;
+    // clock_gettime(CLOCK_MONOTONIC, &ts);
+    // time_t time_prev = ts.tv_sec;
     float sum_elapsed_time = 0;
     u32 num_data_points = 0;
-    time_t interval_ns = 1;
+    // time_t interval_ns = 1;
 	while (!exit_req && !UEI_EXITED(skel, uei)) {
 		//printf("Working\n");
 
@@ -134,15 +134,24 @@ restart:
 		//sleep(1);
 	}
 
+	// This funtion has to execute for 'exit' callback to be invoked from kernel space scheduler
+	// Final computations on telemetry data are made in the 'exit' callback, so let this run first
+	bpf_link__destroy(link);
+
 	printf("Sent: %ld Returned: %ld Missed: %ld\n", skel->bss->nr_sent, skel->bss->nr_returned, skel->bss->nr_missed);
 	printf("Number of enqueues: %ld\n", skel->bss->nr_queues);
 	printf("Number of errors: %ld\n", skel->bss->nr_errors);
-	bpf_link__destroy(link);
-	ecode = UEI_REPORT(skel, uei);
-	double running_ratio = (double) skel->bss->total_running_time / (skel->bss->total_time);
+
+	double running_ratio = (double) skel->bss->num_stopping * 20800000 / (skel->bss->total_time);
+	// change the 208 number later to reflect the real-time average for user-space timeslice
+	// the SCX_SLICE_DFL is 20000000ULL, so it makes sense that the average run time is around that
+
 	printf("Num running: %lu, Num stopping: %lu\n", skel->bss->num_running, skel->bss->num_stopping);
 	printf("Total running time (ns): %lu, Total time (ns): %lu\n", skel->bss->total_running_time, skel->bss->total_time);
 	printf("User space task running time ratio: %f\n", running_ratio);
+
+
+	ecode = UEI_REPORT(skel, uei);
 	scx_test_us__destroy(skel);
 
 	if (UEI_ECODE_RESTART(ecode))

@@ -1,0 +1,63 @@
+To set the niceness for a particular process:
+
+sudo renice <niceness value> -p <pid>
+
+to print out relevant scheduling information
+about a process:
+
+sudo ps -p <pid> -o pid,comm,nice,policy,cls,pri
+
+Where does the output of `bpf_printk()` calls get
+sent to? : /sys/kernel/debug/tracing/trace_pipe
+
+How to repeatedly call a command every interval?
+watch -n <interval in seconds> <command>
+For example, to watch the cpu frequencies change
+every second, run:
+watch -n 1 grep "MHz" /proc/cpuinfo
+
+If you run 'cpupower frequency-info' and
+userspace isn't listed in the available governors,
+it is likely you are using the 'intel_pstate' driver.
+In this case, you should disable it in order to use
+the 'acpi-cpufreq' driver instead. To do this, add
+the following to the GRUB_CMDLINE_LINUX_DEFAULT
+variable within the /etc/default/grub file:
+'intel_pstate=disable'. Then run:
+'sudo grub-mkconfig -o /boot/grub/grub.cfg' to save
+the new configuration, then finally 'sudo reboot'.
+
+OBSERVATIONS
+
+When running on default niceness value:
+PRI value: 23
+Average latency: 1.23366
+Minimum: 0.42
+
+When running on -20 niceness value:
+PRI value: 39
+Average latency:1.20
+Minimum: 0.25
+
+When all tasks are scheduled on CPU logical core 
+#4, the relative usage for that core goes from
+to ~1% to ~15%.
+
+Sometimes when I run the sched-ext scheduler,
+the latency is very high, consistently around 30ms
+rather than around 2ms. I also notice that when
+this occurs, if all the sched-ext tasks are
+running on the same CPU logical core, that core's
+usage goes to 100% and stays there. The laptop
+gets hot and the fans turn on.
+
+
+FOR 10-11 MEETING:
+- What do the run time percentages show?
+    - How does the average latency vary with the run time percentages?
+- Run scheduler on varying CPU clock frequencies
+    - How does the average latency vary with clock frequency?
+- Deep dive into kernel source code to figure out how each callback is invoked
+
+THINGS TO DO:
+- Find out when and how each callback gets invoked in the kernel

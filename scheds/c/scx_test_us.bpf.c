@@ -72,9 +72,9 @@ static bool is_user_task(const struct task_struct *p)
 
 s32 BPF_STRUCT_OPS(test_us_select_cpu, struct task_struct *p, s32 prev_cpu, u64 wake_flags)
 {
-	if (is_user_task(p)) { // user space task isolated to cpu 4
-		return 4;
-	}
+	// if (is_user_task(p)) { // user space task isolated to cpu 4
+	// 	return 3;
+	// }
 	bool is_idle = false;
 	s32 cpu;
 	cpu = scx_bpf_select_cpu_dfl(p, prev_cpu, wake_flags, &is_idle);
@@ -140,9 +140,10 @@ void BPF_STRUCT_OPS(test_us_running, struct task_struct *p)
 void BPF_STRUCT_OPS(test_us_stopping, struct task_struct *p, bool runnable)
 {
 	if (is_user_task(p)) {
-		// u64 time = bpf_ktime_get_ns();
-		u64 elapsed_time = (bpf_ktime_get_ns() - running_start) / 1000000ULL; // time in milliseconds
+		u64 time = bpf_ktime_get_ns();
+		u64 elapsed_time = (time - running_start); // time in milliseconds
 		// bpf_printk("Stop: %llu\n", time);
+		bpf_printk("Elapsed: %llu\n", elapsed_time);
 		total_running_time += elapsed_time;
 		// This is almost always 20 milliseconds
 		__sync_fetch_and_add(&num_stopping, 1);
