@@ -17,16 +17,16 @@ def collect_data(file_path, data_columns):
     """
     try:
         # Define all required columns (including 'time')
-        required_columns = ['time'] + data_columns
+        # required_columns = ['time'] + data_columns
 
         # Read the CSV file
-        data = pd.read_csv(file_path, usecols=required_columns)
+        data = pd.read_csv(file_path)
 
         # Convert 'time' column to datetime
-        data['time'] = pd.to_datetime(data['time'])
+        # data['time'] = pd.to_datetime(data['time'])
 
         # Sort data by time in case it's unordered
-        data.sort_values('time', inplace=True)
+        # data.sort_values('time', inplace=True)
 
         return data
 
@@ -113,10 +113,10 @@ def main():
     Main function to execute the data collection and plotting.
     """
     # Example array of data column names (excluding 'time')
-    data_columns = ['Latency', 'Percentage']  # Modify as needed
+    data_columns = ['time', 'num data points', 'latency', 'ratio']  # Modify as needed
 
     # Path to the input data file
-    file_path = 'data.txt'  # Replace with your actual file path
+    file_path = 'input.csv'  # Replace with your actual file path
 
     # Collect data
     data = collect_data(file_path, data_columns)

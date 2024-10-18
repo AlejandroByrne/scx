@@ -12,7 +12,7 @@
 #include <assert.h>
 #include <sched.h>
 #include <time.h>
-#include "scx_test_us.bpf.skel.h"
+#include "scx_ks.bpf.skel.h"
 #include "scx_test_ks.h"
 
 #define SCHED_EXT 7
@@ -56,11 +56,7 @@ static void sigint_handler(int test)
 	exit_req = 1;
 }
 
-static u64 test_operation(u64 num) {
-	return (num / 2) + 1;
-}
-
-static void live_stats(struct scx_test_us * skel, struct timespec * ts) {
+static void live_stats(struct scx_ks * skel, struct timespec * ts) {
 	// Collecting statistics and printing to STDOUT
 	if (clock_gettime(CLOCK_MONOTONIC, ts) == 0) {
 		// printf("%ld, %ld\n", time_prev, ts_n.tv_nsec);
@@ -85,7 +81,7 @@ static void live_stats(struct scx_test_us * skel, struct timespec * ts) {
 	}
 }
 
-static void final_stats(struct scx_test_us * skel) {
+static void final_stats(struct scx_ks * skel) {
 	printf("Sent: %ld Returned: %ld Missed: %ld\n", skel->bss->nr_sent, skel->bss->nr_returned, skel->bss->nr_missed);
 	printf("Number of enqueues: %ld\n", skel->bss->nr_queues);
 	printf("Number of errors: %ld\n", skel->bss->nr_errors);
@@ -101,7 +97,7 @@ static void final_stats(struct scx_test_us * skel) {
 
 int main(int argc, char **argv)
 {
-	struct scx_test_us *skel;
+	struct scx_ks *skel;
 	struct bpf_link *link;
 	__u32 opt;
 	__u64 ecode;
@@ -118,10 +114,10 @@ int main(int argc, char **argv)
 	// printf("PID: %d\nPlease press enter to continue", getpid());
 	// getchar();
 restart:
-	skel = SCX_OPS_OPEN(test_us_ops, scx_test_us);
+	skel = SCX_OPS_OPEN(ks_ops, scx_ks);
 	
-	SCX_OPS_LOAD(skel, test_us_ops, scx_test_us, uei);
-	link = SCX_OPS_ATTACH(skel, test_us_ops, scx_test_us);
+	SCX_OPS_LOAD(skel, ks_ops, scx_ks, uei);
+	link = SCX_OPS_ATTACH(skel, ks_ops, scx_ks);
 
 	skel->bss->usertask_pid = getpid();
 	assert(skel->bss->usertask_pid > 0);
@@ -135,7 +131,7 @@ restart:
 			verbose = true;
 			break;
 		case 'p':
-			skel->struct_ops.test_us_ops->flags |= SCX_OPS_SWITCH_PARTIAL;
+			skel->struct_ops.ks_ops->flags |= SCX_OPS_SWITCH_PARTIAL;
 			break;
 		default:
 			fprintf(stderr, help_fmt, basename(argv[0]));
@@ -154,15 +150,6 @@ restart:
 		
 		// Collect data, process it, and send it back to kernel space
         struct struct_data input;
-		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.sent), NULL, &input) == 0) {
-			// printf("Value polled: %ld | ", input);
-			input.data = test_operation(input.data);
-			if (bpf_map_update_elem(bpf_map__fd(skel->maps.returned), NULL, &input, 0) == 0) {
-				// printf("Value sent back: %ld | ", result);
-			} else {
-				printf("Task failed to be sent back\n");
-			}
-		}
 		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.finalized), NULL, &input) == 0) {
 			num_data_points++;
 			// printf("%ld\n", input.elapsed_ns);
@@ -181,7 +168,7 @@ restart:
 
 
 	ecode = UEI_REPORT(skel, uei);
-	scx_test_us__destroy(skel);
+	scx_ks__destroy(skel);
 
 	if (UEI_ECODE_RESTART(ecode))
 		goto restart;

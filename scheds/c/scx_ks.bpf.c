@@ -20,6 +20,7 @@
  * Copyright (c) 2022 David Vernet <dvernet@meta.com>
  */
 #include <scx/common.bpf.h>
+#include "bpf/bpf_helpers.h"
 #include "scx_test_ks.h"
 
 char _license[] SEC("license") = "GPL";
@@ -44,19 +45,6 @@ UEI_DEFINE(uei);
 
 #define SHARED_DSQ 0
 
-
-struct {
-	__uint(type, BPF_MAP_TYPE_QUEUE);
-	__uint(max_entries, 1024);
-	__type(value, struct struct_data);
-} sent SEC(".maps");
-
-struct {
-	__uint(type, BPF_MAP_TYPE_QUEUE);
-	__uint(max_entries, 1024);
-	__type(value, struct struct_data);
-} returned SEC(".maps");
-
 struct {
 	__uint(type, BPF_MAP_TYPE_QUEUE);
 	__uint(max_entries, 1024);
@@ -69,7 +57,7 @@ static bool is_user_task(const struct task_struct *p)
 }
 
 
-s32 BPF_STRUCT_OPS(test_us_select_cpu, struct task_struct *p, s32 prev_cpu, u64 wake_flags)
+s32 BPF_STRUCT_OPS(ks_select_cpu, struct task_struct *p, s32 prev_cpu, u64 wake_flags)
 {
 	//if (is_user_task(p)) { // user space task isolated to cpu 4
 	 //	return 4;
@@ -83,7 +71,11 @@ s32 BPF_STRUCT_OPS(test_us_select_cpu, struct task_struct *p, s32 prev_cpu, u64 
 	return cpu;
 }
 
-void BPF_STRUCT_OPS(test_us_enqueue, struct task_struct *p, u64 enq_flags)
+static u64 test_operation(u64 num) {
+	return (num / 2) + 1;
+}
+
+void BPF_STRUCT_OPS(ks_enqueue, struct task_struct *p, u64 enq_flags)
 {
 	if (is_user_task(p)) {
 		scx_bpf_dispatch(p, SCX_DSQ_LOCAL, SCX_SLICE_DFL, enq_flags);
@@ -91,42 +83,28 @@ void BPF_STRUCT_OPS(test_us_enqueue, struct task_struct *p, u64 enq_flags)
 	}
 	// Send data
 	struct struct_data data = {.pid = p->pid, .data = p->recent_used_cpu, .time_start = bpf_ktime_get_ns()};
-	if (bpf_map_push_elem(&sent, &data, 0) == 0) {
-		__sync_fetch_and_add(&nr_sent, 1);
-	} else {
-		__sync_fetch_and_add(&nr_errors, 1);
-	}
+
+	data.data = test_operation(data.data);
+
+	data.time_end = bpf_ktime_get_ns();
+
+	data.elapsed_ns = data.time_end - data.time_start;
+
+	scx_bpf_dispatch(p, SHARED_DSQ, SCX_SLICE_DFL, enq_flags);
+
+	bpf_map_push_elem(&finalized, &data, 0);
 }
 
-void BPF_STRUCT_OPS(test_us_dispatch, s32 cpu, struct task_struct *prev)
+void BPF_STRUCT_OPS(ks_dispatch, s32 cpu, struct task_struct *prev)
 {
 	if (scx_bpf_consume(SHARED_DSQ) == false) {
 		
 	} else {
 		__sync_fetch_and_add(&nr_queues, 1);
 	}
-	bpf_repeat(256) {
-		// no ready tasks available to consume, poll for results from user space
-		struct struct_data data;
-		if (bpf_map_pop_elem(&returned, &data) == 0) {
-			struct struct_data final = {.time_end = bpf_ktime_get_ns(), .data=data.data, .time_start=data.time_start, .pid = data.pid};
-			final.elapsed_ns = final.time_end - final.time_start;
-			struct task_struct * p = bpf_task_from_pid(final.pid);
-			if (p) {
-				scx_bpf_dispatch(p, SHARED_DSQ, SCX_SLICE_DFL, 0);
-				bpf_task_release(p);
-				__sync_fetch_and_add(&nr_returned, 1);
-				bpf_map_push_elem(&finalized, &final, 0);
-			} else {
-				__sync_fetch_and_add(&nr_missed, 1);
-			}
-		} else {
-			break;
-		}
-	}
 }
 
-void BPF_STRUCT_OPS(test_us_running, struct task_struct *p)
+void BPF_STRUCT_OPS(ks_running, struct task_struct *p)
 {
 	if (is_user_task(p)) {
 		running_start = bpf_ktime_get_ns();
@@ -136,7 +114,7 @@ void BPF_STRUCT_OPS(test_us_running, struct task_struct *p)
 	return;
 }
 
-void BPF_STRUCT_OPS(test_us_stopping, struct task_struct *p, bool runnable)
+void BPF_STRUCT_OPS(ks_stopping, struct task_struct *p, bool runnable)
 {
 	if (is_user_task(p)) {
 		if (num_stopping == 0) {
@@ -159,12 +137,12 @@ void BPF_STRUCT_OPS(test_us_stopping, struct task_struct *p, bool runnable)
 	return;
 }
 
-void BPF_STRUCT_OPS(test_us_enable, struct task_struct *p)
+void BPF_STRUCT_OPS(ks_enable, struct task_struct *p)
 {
 	return;
 }
 
-s32 BPF_STRUCT_OPS_SLEEPABLE(test_us_init)
+s32 BPF_STRUCT_OPS_SLEEPABLE(ks_init)
 {
 	total_running_time = 0;
 	running_start = 0;
@@ -174,7 +152,7 @@ s32 BPF_STRUCT_OPS_SLEEPABLE(test_us_init)
 	return scx_bpf_create_dsq(SHARED_DSQ, -1);
 }
 
-void BPF_STRUCT_OPS(test_us_exit, struct scx_exit_info *ei)
+void BPF_STRUCT_OPS(ks_exit, struct scx_exit_info *ei)
 {
 	end_time = bpf_ktime_get_ns();
 	total_time = end_time - start_time;
@@ -184,13 +162,13 @@ void BPF_STRUCT_OPS(test_us_exit, struct scx_exit_info *ei)
 	UEI_RECORD(uei, ei);
 }
 
-SCX_OPS_DEFINE(test_us_ops,
-	       .select_cpu		= (void *)test_us_select_cpu,
-	       .enqueue			= (void *)test_us_enqueue,
-	       .dispatch		= (void *)test_us_dispatch,
-	       .running			= (void *)test_us_running,
-	       .stopping		= (void *)test_us_stopping,
-	       .enable			= (void *)test_us_enable,
-	       .init			= (void *)test_us_init,
-	       .exit			= (void *)test_us_exit,
-	       .name			= "test_us");
+SCX_OPS_DEFINE(ks_ops,
+	       .select_cpu		= (void *)ks_select_cpu,
+	       .enqueue			= (void *)ks_enqueue,
+	       .dispatch		= (void *)ks_dispatch,
+	       .running			= (void *)ks_running,
+	       .stopping		= (void *)ks_stopping,
+	       .enable			= (void *)ks_enable,
+	       .init			= (void *)ks_init,
+	       .exit			= (void *)ks_exit,
+	       .name			= "ks");
