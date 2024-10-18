@@ -2,16 +2,17 @@ import sys
 import csv
 import numpy as np
 
+
 def analyze_data(file_path):
     # Initialize lists to store data for each column
-    columns = [[], [], []]
+    columns = [[], [], [], []]
 
     # Read the CSV file
     with open(file_path, 'r') as file:
         csv_reader = csv.reader(file)
         for row in csv_reader:
             # Skip the time column (index 0) and parse the rest
-            for i in range(1, 4):
+            for i in range(1, 5):
                 columns[i-1].append(float(row[i]))
 
     # Calculate statistics for each column
@@ -31,6 +32,7 @@ def analyze_data(file_path):
         print(f"  Standard Deviation: {std_dev:.4f}")
         print()
 
+
 if __name__ == "__main__":
     # Check if a file path is provided as an argument
     if len(sys.argv) < 2:
@@ -39,4 +41,3 @@ if __name__ == "__main__":
 
     file_path = sys.argv[1]
     analyze_data(file_path)
-

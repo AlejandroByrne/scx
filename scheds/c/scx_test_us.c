@@ -72,10 +72,11 @@ static void live_stats(struct scx_test_us * skel, struct timespec * ts) {
 			u64 total_time = skel->bss->total_time - old_total_time;
 			// printf("%ld, %ld\n", userspace_time, total_time);
 			double running_ratio_interval = (double) userspace_time / total_time;
-			printf("%d, %d, %.2f, %.4f\n", time_counter, num_data_points, average_elapsed_ns, running_ratio_interval);
+			printf("%d, %d, %.2f, %.4f, %ld\n", time_counter, num_data_points, average_elapsed_ns, running_ratio_interval, skel->bss->nr_dispatches);
 			// printf("%ld, %d", ts.tv_nsec);
 			old_userspace_time = skel->bss->total_running_time;
 			old_total_time = skel->bss->total_time;
+			skel->bss->nr_dispatches = 0;
 
 			sum_elapsed_time = 0;
 			num_data_points = 0;

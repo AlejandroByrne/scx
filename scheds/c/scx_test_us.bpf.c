@@ -31,7 +31,7 @@ volatile u64 total_time;
 volatile u64 total_running_time;
 
 volatile s32 usertask_pid;
-
+volatile u64 nr_dispatches;
 volatile u64 nr_returned;
 volatile u64 nr_sent;
 volatile u64 nr_missed;
@@ -100,6 +100,7 @@ void BPF_STRUCT_OPS(test_us_enqueue, struct task_struct *p, u64 enq_flags)
 
 void BPF_STRUCT_OPS(test_us_dispatch, s32 cpu, struct task_struct *prev)
 {
+	__sync_fetch_and_add(&nr_dispatches, 1);
 	if (scx_bpf_consume(SHARED_DSQ) == false) {
 		
 	} else {

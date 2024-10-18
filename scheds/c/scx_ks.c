@@ -153,7 +153,8 @@ restart:
 		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.finalized), NULL, &input) == 0) {
 			num_data_points++;
 			// printf("%ld\n", input.elapsed_ns);
-            sum_elapsed_time += (float) input.elapsed_ns; // convert to milliseconds
+			sum_elapsed_time += (float) input.elapsed_ns; // convert to milliseconds
+			printf("%ld\n", input.elapsed_ns);
 		}
 
 		fflush(stdout);
