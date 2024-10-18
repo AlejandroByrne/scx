@@ -32,11 +32,21 @@ const char help_fmt[] =
 static bool verbose;
 static volatile int exit_req;
 
+static time_t time_prev = 0;
+static float sum_elapsed_time = 0;
+static u32 num_data_points = 0;
+static time_t interval_ns = 1000000000;
+static u32 time_counter = 0;
+
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
 {
 	if (level == LIBBPF_DEBUG && !verbose)
 		return 0;
 	return vfprintf(stderr, format, args);
+}
+
+static time_t ts_to_ns (struct timespec * ts) {
+	return ts->tv_sec * 1000000000 + ts->tv_nsec;
 }
 
 static void sigint_handler(int test)
@@ -46,6 +56,38 @@ static void sigint_handler(int test)
 
 static u64 test_operation(u64 num) {
 	return (num / 2) + 1;
+}
+
+static void live_stats(struct scx_test_us * skel, struct timespec * ts) {
+	// Collecting statistics and printing to STDOUT
+	if (clock_gettime(CLOCK_MONOTONIC, ts) == 0) {
+		// printf("%ld, %ld\n", time_prev, ts_n.tv_nsec);
+		// printf("%ld - %ld = %ld\n", ts.tv_sec, time_prev, ts.tv_sec - time_prev);
+		time_t time_now = ts_to_ns(ts);
+		if ((time_now - time_prev) >= interval_ns) {
+			float average_elapsed_ns = sum_elapsed_time / num_data_points;
+			printf("%d, %d, %.2f\n", time_counter, num_data_points, average_elapsed_ns);
+			// printf("%ld, %d", ts.tv_nsec);
+			sum_elapsed_time = 0;
+			num_data_points = 0;
+			time_prev += interval_ns;
+			++time_counter;
+		}
+	}
+}
+
+static void final_stats(struct scx_test_us * skel) {
+	printf("Sent: %ld Returned: %ld Missed: %ld\n", skel->bss->nr_sent, skel->bss->nr_returned, skel->bss->nr_missed);
+	printf("Number of enqueues: %ld\n", skel->bss->nr_queues);
+	printf("Number of errors: %ld\n", skel->bss->nr_errors);
+
+	double running_ratio = (double) skel->bss->total_running_time / (skel->bss->total_time);
+	// change the 208 number later to reflect the real-time average for user-space timeslice
+	// the SCX_SLICE_DFL is 20000000ULL, so it makes sense that the average run time is around that
+
+	printf("Num running: %lu, Num stopping: %lu\n", skel->bss->num_running, skel->bss->num_stopping);
+	printf("Total running time (ns): %lu, Total time (ns): %lu\n", skel->bss->total_running_time, skel->bss->total_time);
+	printf("User space task running time ratio: %f\n", running_ratio);
 }
 
 int main(int argc, char **argv)
@@ -75,7 +117,6 @@ restart:
 	skel->bss->usertask_pid = getpid();
 	assert(skel->bss->usertask_pid > 0);
 	
-	// struct timespec ts;
 
 	while ((opt = getopt(argc, argv, "vhp")) != -1) {
 		switch (opt) {
@@ -91,28 +132,15 @@ restart:
 		}
 	}
 
+	struct timespec ts;
 	
-    // clock_gettime(CLOCK_MONOTONIC, &ts);
-    // time_t time_prev = ts.tv_sec;
-    float sum_elapsed_time = 0;
-    u32 num_data_points = 0;
-    // time_t interval_ns = 1;
-	while (!exit_req && !UEI_EXITED(skel, uei)) {
-		//printf("Working\n");
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+	time_prev = ts_to_ns(&ts);
 
-		// Collecting statistics and printing to STDOUT
-        // if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
-        //     // printf("%ld, %ld\n", time_prev, ts_n.tv_nsec);
-        //     // printf("%ld - %ld = %ld\n", ts.tv_sec, time_prev, ts.tv_sec - time_prev);
-        //     if ((ts.tv_sec - time_prev) >= interval_ns) {
-        //         float average_elapsed_ns = sum_elapsed_time / num_data_points;
-        //         printf("%ld, %d, %.2f\n", ts.tv_sec, num_data_points, average_elapsed_ns);
-        //         // printf("%ld, %d", ts.tv_nsec);
-        //         sum_elapsed_time = 0;
-        //         num_data_points = 0;
-        //         time_prev += interval_ns;
-        //     }
-        // }
+	while (!exit_req && !UEI_EXITED(skel, uei)) {
+		// Telemetry data collection and printing
+		live_stats(skel, &ts);
+		
 		// Collect data, process it, and send it back to kernel space
         struct struct_data input;
 		while (bpf_map_lookup_and_delete_elem(bpf_map__fd(skel->maps.sent), NULL, &input) == 0) {
@@ -138,17 +166,7 @@ restart:
 	// Final computations on telemetry data are made in the 'exit' callback, so let this run first
 	bpf_link__destroy(link);
 
-	printf("Sent: %ld Returned: %ld Missed: %ld\n", skel->bss->nr_sent, skel->bss->nr_returned, skel->bss->nr_missed);
-	printf("Number of enqueues: %ld\n", skel->bss->nr_queues);
-	printf("Number of errors: %ld\n", skel->bss->nr_errors);
-
-	double running_ratio = (double) skel->bss->num_stopping * 20800000 / (skel->bss->total_time);
-	// change the 208 number later to reflect the real-time average for user-space timeslice
-	// the SCX_SLICE_DFL is 20000000ULL, so it makes sense that the average run time is around that
-
-	printf("Num running: %lu, Num stopping: %lu\n", skel->bss->num_running, skel->bss->num_stopping);
-	printf("Total running time (ns): %lu, Total time (ns): %lu\n", skel->bss->total_running_time, skel->bss->total_time);
-	printf("User space task running time ratio: %f\n", running_ratio);
+	final_stats(skel);
 
 
 	ecode = UEI_REPORT(skel, uei);

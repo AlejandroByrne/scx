@@ -72,15 +72,15 @@ static bool is_user_task(const struct task_struct *p)
 
 s32 BPF_STRUCT_OPS(test_us_select_cpu, struct task_struct *p, s32 prev_cpu, u64 wake_flags)
 {
-	// if (is_user_task(p)) { // user space task isolated to cpu 4
-	// 	return 3;
-	// }
+	//if (is_user_task(p)) { // user space task isolated to cpu 4
+	 //	return 4;
+	//}
 	bool is_idle = false;
 	s32 cpu;
 	cpu = scx_bpf_select_cpu_dfl(p, prev_cpu, wake_flags, &is_idle);
-	if (cpu == 4) { // ensure no other tasks get set to cpu 4
-		return cpu - 1;
-	}
+	// if (cpu == 4) { // ensure no other tasks get set to cpu 4
+	// 	return cpu - 1;
+	// }
 	return cpu;
 }
 
@@ -131,7 +131,7 @@ void BPF_STRUCT_OPS(test_us_running, struct task_struct *p)
 {
 	if (is_user_task(p)) {
 		running_start = bpf_ktime_get_ns();
-		// bpf_printk("Start: %llu\n", running_start);
+		bpf_printk("Start: %llu\n", running_start);
 		__sync_fetch_and_add(&num_running, 1);
 	}
 	return;
@@ -140,11 +140,20 @@ void BPF_STRUCT_OPS(test_us_running, struct task_struct *p)
 void BPF_STRUCT_OPS(test_us_stopping, struct task_struct *p, bool runnable)
 {
 	if (is_user_task(p)) {
+		if (num_stopping == 0) {
+			total_running_time = 0;
+			bpf_printk("First time setting total_running_time: %llu\n", total_running_time);
+			__sync_fetch_and_add(&num_stopping, 1);
+			return;
+		}
 		u64 time = bpf_ktime_get_ns();
+		bpf_printk("Time:%llu\n", time);
 		u64 elapsed_time = (time - running_start); // time in milliseconds
 		// bpf_printk("Stop: %llu\n", time);
+		bpf_printk("TOT RUN: %llu\n", total_running_time);
 		bpf_printk("Elapsed: %llu\n", elapsed_time);
 		total_running_time += elapsed_time;
+		bpf_printk("Total running time: %llu\n", total_running_time);
 		// This is almost always 20 milliseconds
 		__sync_fetch_and_add(&num_stopping, 1);
 	}
@@ -158,6 +167,9 @@ void BPF_STRUCT_OPS(test_us_enable, struct task_struct *p)
 
 s32 BPF_STRUCT_OPS_SLEEPABLE(test_us_init)
 {
+	total_running_time = 0;
+	running_start = 0;
+
 	start_time = bpf_ktime_get_ns();
 	bpf_printk("Start time: %llu\n", start_time);
 	return scx_bpf_create_dsq(SHARED_DSQ, -1);
