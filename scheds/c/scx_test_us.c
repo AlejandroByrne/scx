@@ -38,6 +38,9 @@ static u32 num_data_points = 0;
 static time_t interval_ns = 1000000000;
 static u32 time_counter = 0;
 
+static u64 old_total_time = 0;
+static u64 old_userspace_time = 0;
+
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
 {
 	if (level == LIBBPF_DEBUG && !verbose)
@@ -66,8 +69,15 @@ static void live_stats(struct scx_test_us * skel, struct timespec * ts) {
 		time_t time_now = ts_to_ns(ts);
 		if ((time_now - time_prev) >= interval_ns) {
 			float average_elapsed_ns = sum_elapsed_time / num_data_points;
-			printf("%d, %d, %.2f\n", time_counter, num_data_points, average_elapsed_ns);
+			u64 userspace_time = skel->bss->total_running_time - old_userspace_time;
+			u64 total_time = skel->bss->total_time - old_total_time;
+			// printf("%ld, %ld\n", userspace_time, total_time);
+			double running_ratio_interval = (double) userspace_time / total_time;
+			printf("%d, %d, %.2f, %.4f\n", time_counter, num_data_points, average_elapsed_ns, running_ratio_interval);
 			// printf("%ld, %d", ts.tv_nsec);
+			old_userspace_time = skel->bss->total_running_time;
+			old_total_time = skel->bss->total_time;
+
 			sum_elapsed_time = 0;
 			num_data_points = 0;
 			time_prev += interval_ns;
@@ -116,6 +126,8 @@ restart:
 
 	skel->bss->usertask_pid = getpid();
 	assert(skel->bss->usertask_pid > 0);
+
+	old_total_time = skel->bss->start_time;
 	
 
 	while ((opt = getopt(argc, argv, "vhp")) != -1) {

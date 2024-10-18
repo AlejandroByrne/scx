@@ -146,9 +146,9 @@ void BPF_STRUCT_OPS(test_us_stopping, struct task_struct *p, bool runnable)
 			__sync_fetch_and_add(&num_stopping, 1);
 			return;
 		}
-		u64 time = bpf_ktime_get_ns();
-		bpf_printk("Time:%llu\n", time);
-		u64 elapsed_time = (time - running_start); // time in milliseconds
+		total_time = bpf_ktime_get_ns();
+		bpf_printk("Time:%llu\n", total_time);
+		u64 elapsed_time = (total_time - running_start); // time in milliseconds
 		// bpf_printk("Stop: %llu\n", time);
 		bpf_printk("TOT RUN: %llu\n", total_running_time);
 		bpf_printk("Elapsed: %llu\n", elapsed_time);
