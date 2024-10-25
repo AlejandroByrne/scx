@@ -49,3 +49,8 @@ dstat:
 
 
 Everything else will have to be collected from attaching BPF code in kprobes.
+
+ANTHONY'S IDEA:
+- Have some base scheduler with custom parameters that can be adjusted
+- Have the user specify a config file for things they want to prioritize (network bound threads, i/o driven threads, throughput, latency, fairness)
+- Use reinforcement learning to adjust those parameters based on if they satisfy the config's files requirements.
