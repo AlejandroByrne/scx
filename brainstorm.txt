@@ -1,0 +1,51 @@
+What are possible ML models that we can use asynchronously to aid the CPU
+scheduler and load balancer?
+
+Task classification:
+> Classify tasks into categories like high priority, I/O bound, CPU bound, etc
+    Models that can be used:
+    - Random forest
+
+Predictive load balancing:
+> Predict future CPU loads based on historical usage patterns
+    Models that can be used:
+    - Time series forecasting models like LSTM
+
+
+Create profiles for each task (identified by their comm value, like
+"remote-dev-serv", or "sshd-session", or "kworker/R-rcu_gp")
+    Each profile could store statistics, which are fed and updated by ML models
+    - Greediness: ratio from 0 to 1 for how often it executes through its
+        entire time slice and how often it yields or blocks
+    - I/O bound: ratio from 0 to 1 for how often it blocks for I/O
+    - Parallel: whether or not this task runs for a multi-threaded program
+        - Siblings: list of other tasks that run for the same program
+    - Execution time: time taken for task to complete across multiple runs
+        - Store stddev as well
+    - Wait time: time spent in the ready queue
+        - store max and min as well
+        - can be indicative of what I/O it waits for (disk vs keystroke)
+
+
+Where do we get this data from?
+
+task_struct:
+- CPU utilization (utime and stime)
+- Memory usage (mm_struct)
+- Thread count (thread_group)
+
+
+perf:
+- CPU cycles, cache misses, etc
+
+
+sysstat:
+- Memory and I/O
+- Network traffic
+
+
+dstat:
+- comprehensive view of CPU, mem, disk I/O, network stats
+
+
+Everything else will have to be collected from attaching BPF code in kprobes.
