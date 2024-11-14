@@ -99,6 +99,8 @@ void BPF_STRUCT_OPS(simple_dispatch, s32 cpu, struct task_struct *prev)
 
 void BPF_STRUCT_OPS(simple_running, struct task_struct *p)
 {
+	
+
 	if (fifo_sched)
 		return;
 
