@@ -66,9 +66,9 @@ static void print_stats(struct scx_ml_collect * skel) {
 	int err = bpf_map_get_next_key(bpf_map__fd(skel->maps.task_data), cur_pid, &next_pid);
 	struct task_sched_data tsk_ptr;
 	while (!err) {
-		printf("err value: %d\n", err);
+		//printf("err value: %d\n", err);
 		int result = bpf_map_lookup_elem(bpf_map__fd(skel->maps.task_data), &next_pid, &tsk_ptr);
-		printf("result value: %d\n", result);
+		//printf("result value: %d\n", result);
 		printf("NAME: %s, PID: %d, MIN_FLT: %u\n", tsk_ptr.name, tsk_ptr.pid, tsk_ptr.min_flt);
 		cur_pid = &next_pid;
 		err = bpf_map_get_next_key(bpf_map__fd(skel->maps.task_data), cur_pid, &next_pid);

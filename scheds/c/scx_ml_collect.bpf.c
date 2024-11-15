@@ -87,8 +87,9 @@ void BPF_STRUCT_OPS(ml_collect_enqueue, struct task_struct *p, u64 enq_flags)
     if (tsk_ptr != NULL) { // already aware of this task (pid)
 		bpf_printk("Found a pid that is already accounted for\n");
 	} else { // new task, create and insert new data struct for it
-		struct task_sched_data tsk_data = {.pid = p->pid, /*.min_flt = p->min_flt*/};
-		// strncpy(tsk_data.name, p->comm, TASK_COMM_LEN);
+		struct task_sched_data tsk_data = {.pid = p->pid, .min_flt = p->min_flt};
+		//strncpy(tsk_data.name, p->comm, TASK_COMM_LEN);
+		__builtin_memcpy(tsk_data.name, p->comm, sizeof(tsk_data.name));
 		if (bpf_map_update_elem(&task_data, &pid, &tsk_data, BPF_NOEXIST) == 0) {
 			bpf_printk("Successfully added a struct to the task_data hash map\n");
 		} else {
