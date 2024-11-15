@@ -153,9 +153,9 @@ void BPF_STRUCT_OPS(ml_collect_stopping, struct task_struct *p, bool runnable)
 	if (p->exit_state == EXIT_ZOMBIE || p->__state == EXIT_DEAD) {
 		// there is useful exit data to collect, find the task_sched_data struct and update it
 		pid_t pid = p->pid;
-	    struct task_sched_data * tsk_ptr = bpf_map_lookup_elem(&task_data, &pid);
+		struct task_sched_data * tsk_ptr = bpf_map_lookup_elem(&task_data, &pid);
 		if (tsk_ptr != NULL) {
-			
+			tsk_ptr->end_time = bpf_ktime_get_ns();
 		} else {
 			// this should be an issue. The task should not be finishing before we have even become aware of it.
 		}

@@ -5,13 +5,13 @@
 struct task_sched_data {
     // Task attributes
     // Identification
-    char name[TASK_COMM_LEN];
+    char name[TASK_COMM_LEN]; // Ale down
     int pid;
     int rq_idx;
     u64 last_sum_exec_runtime;
     u64 total_numa_faults;
-    u64 blkio_start; // Deadline attribtues
-	u64 blkio_delay;
+    u64 blkio_start; // Deadline attribtues, anthony down
+	u64 blkio_delay; // Anthony, and down
 	u64 swapin_delay;
 	u32 blkio_count;
 	u32 swapin_count;
@@ -24,7 +24,7 @@ struct task_sched_data {
     int stack_refcount;
 
     // Sched entity counters
-    long unsigned int weight;
+    long unsigned int weight; // ale, and down
     u32 inv_weight;
     //u64 deadline;
     u64 vruntime;
@@ -33,7 +33,7 @@ struct task_sched_data {
     u64 nr_migrations;
 
     // Sched stats counters
-    u64 wait_start;
+    u64 wait_start; // Anthony down
     u64 wait_max;
     u64 wait_count;
     u64 wait_sum;
@@ -48,12 +48,12 @@ struct task_sched_data {
     u64 end_time; // added by Ale
     u64 execution_time; // added by Ale
 
-    u64 run_delay;
+    u64 run_delay; // Anthony down
     u64 last_arrival;
     u64 last_queued;
 
     // Memory counters
-    u32 min_flt;
+    u32 min_flt; // ale and down
     u32 maj_flt;
     u32 total_vm;
     u32 hiwater_rss;
