@@ -22,7 +22,10 @@
  */
 #include <scx/common.bpf.h>
 #include "task_sched_data.h"
-#include <string.h>
+#include <sched.h>
+
+#define EXIT_ZOMBIE 0x00000020
+#define EXIT_DEAD 0x00000010
 
 char _license[] SEC("license") = "GPL";
 
@@ -86,8 +89,16 @@ void BPF_STRUCT_OPS(ml_collect_enqueue, struct task_struct *p, u64 enq_flags)
 	struct task_sched_data * tsk_ptr = bpf_map_lookup_elem(&task_data, &pid);
     if (tsk_ptr != NULL) { // already aware of this task (pid)
 		bpf_printk("Found a pid that is already accounted for\n");
+		// update data
+		tsk_ptr->nr_migrations = p->se.nr_migrations;
+		tsk_ptr->vruntime = p->se.vruntime;
+		tsk_ptr->min_flt = p->min_flt;
+		tsk_ptr->maj_flt = p->maj_flt;
+		tsk_ptr->total_vm = p->mm->total_vm;
+		tsk_ptr->hiwater_rss = p->mm->hiwater_rss;
+		tsk_ptr->map_count = p->mm->map_count;
 	} else { // new task, create and insert new data struct for it
-		struct task_sched_data tsk_data = {.pid = p->pid, .min_flt = p->min_flt};
+		struct task_sched_data tsk_data = {.pid = p->pid, .start_time = p->start_time};
 		//strncpy(tsk_data.name, p->comm, TASK_COMM_LEN);
 		__builtin_memcpy(tsk_data.name, p->comm, sizeof(tsk_data.name));
 		if (bpf_map_update_elem(&task_data, &pid, &tsk_data, BPF_NOEXIST) == 0) {
@@ -138,6 +149,18 @@ void BPF_STRUCT_OPS(ml_collect_running, struct task_struct *p)
 
 void BPF_STRUCT_OPS(ml_collect_stopping, struct task_struct *p, bool runnable)
 {
+	// is the task finished? If so, collect exit stats
+	if (p->exit_state == EXIT_ZOMBIE || p->__state == EXIT_DEAD) {
+		// there is useful exit data to collect, find the task_sched_data struct and update it
+		pid_t pid = p->pid;
+	    struct task_sched_data * tsk_ptr = bpf_map_lookup_elem(&task_data, &pid);
+		if (tsk_ptr != NULL) {
+			
+		} else {
+			// this should be an issue. The task should not be finishing before we have even become aware of it.
+		}
+	}
+
 	if (fifo_sched)
 		return;
 
