@@ -65,11 +65,13 @@ static void read_stats(struct scx_ml_collect *skel, __u64 *stats)
 static void print_task_stats (struct task_sched_data * tsk_ptr) {
 	printf("------------------>>>>>     TASK: %-20s  <<<<<-----------------------\n", tsk_ptr->name);
 	printf("---------------------------------------------\n");
-	printf("PID: %d\n", tsk_ptr->pid);
-	printf("--------       Memory Stats      ------------\n");
+	printf("PID: %d, DONE YET? %s, EXEC_TIME: %lu\n", tsk_ptr->pid, tsk_ptr->execution_time == 0 ? "false" : "true", tsk_ptr->execution_time);
+	printf("-----------------------       Memory Stats      ---------------------\n");
 	printf("MIN_FLT: %u, MAJ_FLT: %u, TOTAL_VM: %u, MAP_COUNT: %u, HIWATER_RSS: %u\n", tsk_ptr->min_flt, tsk_ptr->maj_flt, tsk_ptr->total_vm, tsk_ptr->map_count, tsk_ptr->hiwater_rss);
-	printf("----------       CPU Stats       ------------\n");
+	printf("-----------------------       CPU Stats         ---------------------\n");
 	printf("NUMA_FLTS: %lu, \n", tsk_ptr->total_numa_faults);
+	printf("-----------------------     Timing Stats        ---------------------\n");
+	printf("VRUNTIME: %lu, NR_MIGRATIONS: %lu, PREV_SUM_EXEC_RTIME: %lu, CUR_SUM_EXEC_RTIME: %lu\n", tsk_ptr->vruntime, tsk_ptr->nr_migrations, tsk_ptr->prev_sum_exec_runtime, tsk_ptr->sum_exec_runtime);
 	printf("---------------------------------------------\n\n");
 }
 

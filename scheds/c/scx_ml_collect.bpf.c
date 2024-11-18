@@ -93,8 +93,14 @@ void BPF_STRUCT_OPS(ml_collect_enqueue, struct task_struct *p, u64 enq_flags)
 		// update data
 		tsk_ptr->nr_migrations = p->se.nr_migrations;
 		tsk_ptr->vruntime = p->se.vruntime;
+		//bpf_printk("Min flt: %u\n", p->min_flt);
 		__builtin_memcpy(&(tsk_ptr->min_flt), &(p->min_flt), sizeof(tsk_ptr->min_flt));
 		// tsk_ptr->min_flt = p->min_flt;
+		if (p->mm == NULL) { // this is a kernel space task, so don't collect mm struct info
+			//bpf_printk("This task %s is a kernel space task\n", tsk_ptr->name);
+		} else {
+			//bpf_printk("This task %s is a userspace task\n", tsk_ptr->name);
+		}
 		tsk_ptr->maj_flt = p->maj_flt;
 		tsk_ptr->total_vm = p->mm->total_vm;
 		tsk_ptr->hiwater_rss = p->mm->hiwater_rss;
@@ -179,6 +185,31 @@ void BPF_STRUCT_OPS(ml_collect_stopping, struct task_struct *p, bool runnable)
 		}
 	}
 
+	
+
+	pid_t pid = p->pid;
+	struct task_sched_data * tsk_ptr = bpf_map_lookup_elem(&task_data, &pid);
+	if (tsk_ptr != NULL) {
+		if (p->mm == NULL) { // this is a userspace task, so collect mm struct data
+			tsk_ptr->total_vm = p->mm->total_vm;
+			tsk_ptr->hiwater_rss = p->mm->hiwater_rss;
+			tsk_ptr->map_count = p->mm->map_count;
+			tsk_ptr->min_flt = p->min_flt;
+			tsk_ptr->maj_flt = p->maj_flt;
+		}
+		
+		tsk_ptr->prev_sum_exec_runtime = tsk_ptr->sum_exec_runtime;
+		tsk_ptr->sum_exec_runtime = p->se.sum_exec_runtime;
+		tsk_ptr->last_sum_exec_runtime = p->last_sum_exec_runtime;
+		tsk_ptr->nr_migrations = p->se.nr_migrations;
+		
+		//__builtin_memcpy(&(tsk_ptr->map_count), &(p->min_flt), sizeof(p->min_flt));
+		#ifdef PRINT_DEBUG
+		bpf_printk("MIN_FLT: %u\n", tsk_ptr->min_flt;)
+		#endif
+		
+	}
+
 	if (fifo_sched)
 		return;
 
@@ -193,23 +224,8 @@ void BPF_STRUCT_OPS(ml_collect_stopping, struct task_struct *p, bool runnable)
 	 */
 	p->scx.dsq_vtime += (SCX_SLICE_DFL - p->scx.slice) * 100 / p->scx.weight;
 
-	pid_t pid = p->pid;
-	struct task_sched_data * tsk_ptr = bpf_map_lookup_elem(&task_data, &pid);
 	if (tsk_ptr != NULL) {
 		tsk_ptr->vruntime = p->scx.dsq_vtime;
-		tsk_ptr->prev_sum_exec_runtime = tsk_ptr->sum_exec_runtime;
-		tsk_ptr->sum_exec_runtime = p->se.sum_exec_runtime;
-		tsk_ptr->last_sum_exec_runtime = p->last_sum_exec_runtime;
-		tsk_ptr->nr_migrations = p->se.nr_migrations;
-		tsk_ptr->total_vm = p->mm->total_vm;
-		tsk_ptr->hiwater_rss = p->mm->hiwater_rss;
-		tsk_ptr->map_count = p->mm->map_count;
-		__builtin_memcpy(&(tsk_ptr->map_count), &(p->min_flt), sizeof(p->min_flt));
-		#ifdef PRINT_DEBUG
-		bpf_printk("MIN_FLT: %u\n", tsk_ptr->min_flt;)
-		#endif
-		//tsk_ptr->min_flt = p->min_flt;
-		tsk_ptr->maj_flt = p->maj_flt;
 	}
 }
 
