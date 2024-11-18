@@ -22,7 +22,6 @@
  */
 #include <scx/common.bpf.h>
 #include "task_sched_data.h"
-#include <sched.h>
 
 #define EXIT_ZOMBIE 0x00000020
 #define EXIT_DEAD 0x00000010
@@ -88,23 +87,31 @@ void BPF_STRUCT_OPS(ml_collect_enqueue, struct task_struct *p, u64 enq_flags)
 	pid_t pid = p->pid;
 	struct task_sched_data * tsk_ptr = bpf_map_lookup_elem(&task_data, &pid);
     if (tsk_ptr != NULL) { // already aware of this task (pid)
+		#ifdef PRINT_DEBUG
 		bpf_printk("Found a pid that is already accounted for\n");
+		#endif
 		// update data
 		tsk_ptr->nr_migrations = p->se.nr_migrations;
 		tsk_ptr->vruntime = p->se.vruntime;
-		tsk_ptr->min_flt = p->min_flt;
+		__builtin_memcpy(&(tsk_ptr->min_flt), &(p->min_flt), sizeof(tsk_ptr->min_flt));
+		// tsk_ptr->min_flt = p->min_flt;
 		tsk_ptr->maj_flt = p->maj_flt;
 		tsk_ptr->total_vm = p->mm->total_vm;
 		tsk_ptr->hiwater_rss = p->mm->hiwater_rss;
 		tsk_ptr->map_count = p->mm->map_count;
+		tsk_ptr->total_numa_faults = p->total_numa_faults;
+		
 	} else { // new task, create and insert new data struct for it
 		struct task_sched_data tsk_data = {.pid = p->pid, .start_time = p->start_time};
-		//strncpy(tsk_data.name, p->comm, TASK_COMM_LEN);
 		__builtin_memcpy(tsk_data.name, p->comm, sizeof(tsk_data.name));
 		if (bpf_map_update_elem(&task_data, &pid, &tsk_data, BPF_NOEXIST) == 0) {
+			#ifdef PRINT_DEBUG
 			bpf_printk("Successfully added a struct to the task_data hash map\n");
+			#endif
 		} else {
+			#ifdef PRINT_DEBUG
 			bpf_printk("Adding a struct to the task_data hash map failed\n");
+			#endif
 		}
 	}
 
@@ -134,6 +141,13 @@ void BPF_STRUCT_OPS(ml_collect_dispatch, s32 cpu, struct task_struct *prev)
 
 void BPF_STRUCT_OPS(ml_collect_running, struct task_struct *p)
 {
+	pid_t pid = p->pid;
+	struct task_sched_data * tsk_ptr = bpf_map_lookup_elem(&task_data, &pid);
+
+	if (tsk_ptr != NULL && tsk_ptr->start_time == 0) {
+		tsk_ptr->start_time = bpf_ktime_get_ns();
+	}
+
 	if (fifo_sched)
 		return;
 
@@ -143,8 +157,11 @@ void BPF_STRUCT_OPS(ml_collect_running, struct task_struct *p)
 	 * thus racy. Any error should be contained and temporary. Let's just
 	 * live with it.
 	 */
+
 	if (vtime_before(vtime_now, p->scx.dsq_vtime))
 		vtime_now = p->scx.dsq_vtime;
+
+	
 }
 
 void BPF_STRUCT_OPS(ml_collect_stopping, struct task_struct *p, bool runnable)
@@ -156,6 +173,7 @@ void BPF_STRUCT_OPS(ml_collect_stopping, struct task_struct *p, bool runnable)
 		struct task_sched_data * tsk_ptr = bpf_map_lookup_elem(&task_data, &pid);
 		if (tsk_ptr != NULL) {
 			tsk_ptr->end_time = bpf_ktime_get_ns();
+			tsk_ptr->execution_time = tsk_ptr->end_time - tsk_ptr->start_time;
 		} else {
 			// this should be an issue. The task should not be finishing before we have even become aware of it.
 		}
@@ -174,6 +192,25 @@ void BPF_STRUCT_OPS(ml_collect_stopping, struct task_struct *p, bool runnable)
 	 * instead of depending on @p->scx.slice.
 	 */
 	p->scx.dsq_vtime += (SCX_SLICE_DFL - p->scx.slice) * 100 / p->scx.weight;
+
+	pid_t pid = p->pid;
+	struct task_sched_data * tsk_ptr = bpf_map_lookup_elem(&task_data, &pid);
+	if (tsk_ptr != NULL) {
+		tsk_ptr->vruntime = p->scx.dsq_vtime;
+		tsk_ptr->prev_sum_exec_runtime = tsk_ptr->sum_exec_runtime;
+		tsk_ptr->sum_exec_runtime = p->se.sum_exec_runtime;
+		tsk_ptr->last_sum_exec_runtime = p->last_sum_exec_runtime;
+		tsk_ptr->nr_migrations = p->se.nr_migrations;
+		tsk_ptr->total_vm = p->mm->total_vm;
+		tsk_ptr->hiwater_rss = p->mm->hiwater_rss;
+		tsk_ptr->map_count = p->mm->map_count;
+		__builtin_memcpy(&(tsk_ptr->map_count), &(p->min_flt), sizeof(p->min_flt));
+		#ifdef PRINT_DEBUG
+		bpf_printk("MIN_FLT: %u\n", tsk_ptr->min_flt;)
+		#endif
+		//tsk_ptr->min_flt = p->min_flt;
+		tsk_ptr->maj_flt = p->maj_flt;
+	}
 }
 
 void BPF_STRUCT_OPS(ml_collect_enable, struct task_struct *p)

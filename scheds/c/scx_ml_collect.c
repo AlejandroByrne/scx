@@ -14,6 +14,8 @@
 #include "task_sched_data.h"
 #include "scx_ml_collect.bpf.skel.h"
 
+#define PRINT_DEBUG
+
 const char help_fmt[] =
 "A simple sched_ext scheduler.\n"
 "\n"
@@ -60,6 +62,17 @@ static void read_stats(struct scx_ml_collect *skel, __u64 *stats)
 	}
 }
 
+static void print_task_stats (struct task_sched_data * tsk_ptr) {
+	printf("------------------>>>>>     TASK: %-20s  <<<<<-----------------------\n", tsk_ptr->name);
+	printf("---------------------------------------------\n");
+	printf("PID: %d\n", tsk_ptr->pid);
+	printf("--------       Memory Stats      ------------\n");
+	printf("MIN_FLT: %u, MAJ_FLT: %u, TOTAL_VM: %u, MAP_COUNT: %u, HIWATER_RSS: %u\n", tsk_ptr->min_flt, tsk_ptr->maj_flt, tsk_ptr->total_vm, tsk_ptr->map_count, tsk_ptr->hiwater_rss);
+	printf("----------       CPU Stats       ------------\n");
+	printf("NUMA_FLTS: %lu, \n", tsk_ptr->total_numa_faults);
+	printf("---------------------------------------------\n\n");
+}
+
 static void print_stats(struct scx_ml_collect * skel) {
 	pid_t * cur_pid = NULL;
 	pid_t next_pid;
@@ -69,7 +82,12 @@ static void print_stats(struct scx_ml_collect * skel) {
 		//printf("err value: %d\n", err);
 		int result = bpf_map_lookup_elem(bpf_map__fd(skel->maps.task_data), &next_pid, &tsk_ptr);
 		//printf("result value: %d\n", result);
-		printf("NAME: %s, PID: %d, MIN_FLT: %u\n", tsk_ptr.name, tsk_ptr.pid, tsk_ptr.min_flt);
+		if (result) {
+			break;
+		}
+		#ifdef PRINT_DEBUG
+		print_task_stats(&tsk_ptr);
+		#endif
 		cur_pid = &next_pid;
 		err = bpf_map_get_next_key(bpf_map__fd(skel->maps.task_data), cur_pid, &next_pid);
 	}
@@ -107,7 +125,9 @@ restart:
 
 	while (!exit_req && !UEI_EXITED(skel, uei)) {
 		// __u64 stats[2];
+		#ifdef PRINT_DEBUG
 		print_stats(skel);
+		#endif
 		// read_stats(skel, stats);
 		// printf("local=%llu global=%llu\n", stats[0], stats[1]);
 		fflush(stdout);
