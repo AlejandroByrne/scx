@@ -74,6 +74,7 @@ static void print_task_stats (struct task_sched_data * tsk_ptr) {
 	printf("NUMA_FLTS: %lu, \n", tsk_ptr->total_numa_faults);
 	printf("STACK_REF_CNT: %d\n", tsk_ptr->stack_refcount);
 	printf("-----------------------     Timing Stats        ---------------------\n");
+	printf("WEIGHT: %lu, INV_WEIGHT: %u\n", tsk_ptr->weight, tsk_ptr->inv_weight);
 	printf("VRUNTIME: %lu, NR_MIGRATIONS: %lu, PREV_SUM_EXEC_RTIME: %lu, CUR_SUM_EXEC_RTIME: %lu\n", tsk_ptr->vruntime, tsk_ptr->nr_migrations, tsk_ptr->prev_sum_exec_runtime, tsk_ptr->sum_exec_runtime);
 	printf("-----------------------   Deadline Attributes   ---------------------\n");
 	printf("BLKIO_START: %lu, BLKIO_DELAY: %lu, SWAPIN_DELAY: %lu, BLKIO_CNT: %u\n", tsk_ptr->blkio_start, tsk_ptr->blkio_delay, tsk_ptr->swapin_delay, tsk_ptr->blkio_count);
