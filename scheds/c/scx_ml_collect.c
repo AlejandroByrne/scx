@@ -70,6 +70,7 @@ static void print_task_stats (struct task_sched_data * tsk_ptr) {
 	printf("MIN_FLT: %u, MAJ_FLT: %u, TOTAL_VM: %u, MAP_COUNT: %u, HIWATER_RSS: %u\n", tsk_ptr->min_flt, tsk_ptr->maj_flt, tsk_ptr->total_vm, tsk_ptr->map_count, tsk_ptr->hiwater_rss);
 	printf("-----------------------       CPU Stats         ---------------------\n");
 	printf("NUMA_FLTS: %lu, \n", tsk_ptr->total_numa_faults);
+	printf("STACK_REF_CNT: %d\n", tsk_ptr->stack_refcount);
 	printf("-----------------------     Timing Stats        ---------------------\n");
 	printf("VRUNTIME: %lu, NR_MIGRATIONS: %lu, PREV_SUM_EXEC_RTIME: %lu, CUR_SUM_EXEC_RTIME: %lu\n", tsk_ptr->vruntime, tsk_ptr->nr_migrations, tsk_ptr->prev_sum_exec_runtime, tsk_ptr->sum_exec_runtime);
 	printf("-----------------------   Deadline Attributes   ---------------------\n");
@@ -77,6 +78,12 @@ static void print_task_stats (struct task_sched_data * tsk_ptr) {
 	printf("SWAPIN_CNT: %u, FREEPAGES_START: %lu, FREEPAGES_DELAY: %lu\n", tsk_ptr->swapin_count, tsk_ptr->freepages_start, tsk_ptr->freepages_delay);
 	printf("THRASHING_CNT: %lu, THRASHING_DELAY: %lu\n", tsk_ptr->thrashing_start, tsk_ptr->thrashing_delay);
 	printf("FREEPAGES_CNT: %u, THRASHING_CNT: %u\n", tsk_ptr->freepages_count, tsk_ptr->thrashing_count);
+	printf("-----------------------   Scheduler Statistics Counters   ---------------------\n");
+	printf("WAIT_START: %lu, WAIT_MAX: %lu, WAIT_CNT: %lu, WAIT_SUM: %lu\n", tsk_ptr->wait_start, tsk_ptr->wait_max, tsk_ptr->wait_count, tsk_ptr->wait_sum);
+	printf("IOWAIT_CNT: %lu, IOWAIT_SUM: %lu\n", tsk_ptr->iowait_count, tsk_ptr->iowait_sum);
+	printf("SLEEP_START: %lu, SLEEP_MAX: %lu, SUM_SLEEP_RUNTIME: %lu\n", tsk_ptr->sleep_start, tsk_ptr->sleep_max, tsk_ptr->sum_sleep_runtime);
+	printf("BLOCK_START: %lu, BLOCK_MAX: %lu\n", tsk_ptr->block_start, tsk_ptr->block_max);
+	printf("RUN_DELAY: %lu, LAST_ARRIVAL: %lu, LAST_QUEUED: %lu\n", tsk_ptr->run_delay, tsk_ptr->last_arrival, tsk_ptr->last_queued);
 	printf("---------------------------------------------\n\n");
 }
 
