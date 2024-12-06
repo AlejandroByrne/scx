@@ -4,7 +4,9 @@
  * Copyright (c) 2022 Tejun Heo <tj@kernel.org>
  * Copyright (c) 2022 David Vernet <dvernet@meta.com>
  */
+#include <linux/sysinfo.h>
 #include <stdio.h>
+#include <sys/sysinfo.h>
 #include <unistd.h>
 #include <signal.h>
 #include <libgen.h>
@@ -87,7 +89,21 @@ static void print_task_stats (struct task_sched_data * tsk_ptr) {
 	printf("---------------------------------------------\n\n");
 }
 
+static void print_sysinfo_stats(struct sysinfo *info) {
+	printf("********************** SYSTEM STATS **********************\n");
+	printf("UPTIME: %ld\n", info->uptime);
+	printf("TOTAL_RAM: %lu, FREE_RAM: %lu, SHARED_RAM: %lu, BUFFER_RAM: %lu\n", info->totalram, info->freeram, info->sharedram, info->bufferram);
+	printf("TOTAL_SWAP: %lu, FREE_SWAP: %lu\n", info->totalswap, info->freeswap);
+	printf("# PROCESSES: %hu\n", info->procs);
+	printf("TOTAL_HIGH: %lu\n", info->totalhigh);
+	printf("FREE_HIGH: %lu\n", info->freehigh);
+	printf("**********************************************************\n\n");
+}
+
 static void print_stats(struct scx_ml_collect * skel) {
+	#ifdef PRINT_DEBUG
+	print_sysinfo_stats(&skel->bss->system_information);
+	#endif
 	pid_t * cur_pid = NULL;
 	pid_t next_pid;
 	int err = bpf_map_get_next_key(bpf_map__fd(skel->maps.task_data), cur_pid, &next_pid);
@@ -104,6 +120,18 @@ static void print_stats(struct scx_ml_collect * skel) {
 		#endif
 		cur_pid = &next_pid;
 		err = bpf_map_get_next_key(bpf_map__fd(skel->maps.task_data), cur_pid, &next_pid);
+	}
+}
+
+static void update_system_wide_data(struct scx_ml_collect *skel) {
+	// Try putting the system information in a temporary struct then copying
+	// it to the system_information struct in the skeleton (worried about
+	// issues with mmapped data being passed into a system call)
+
+	// TODO: See if this copying is even necessary
+	struct sysinfo gathered_sysinfo;
+	if (sysinfo(&gathered_sysinfo) == 0) {
+		skel->bss->system_information = gathered_sysinfo;
 	}
 }
 
@@ -138,6 +166,7 @@ restart:
 	link = SCX_OPS_ATTACH(skel, ml_collect_ops, scx_ml_collect);
 
 	while (!exit_req && !UEI_EXITED(skel, uei)) {
+		update_system_wide_data(skel);
 		// __u64 stats[2];
 		#ifdef PRINT_DEBUG
 		print_stats(skel);

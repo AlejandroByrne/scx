@@ -31,6 +31,10 @@ char _license[] SEC("license") = "GPL";
 const volatile bool fifo_sched;
 
 static u64 vtime_now;
+
+// System Wide Data to be used for ML (Memory and Hardware Attributes)
+struct sysinfo system_information;
+
 UEI_DEFINE(uei);
 
 /*
