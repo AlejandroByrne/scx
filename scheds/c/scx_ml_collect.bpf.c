@@ -86,11 +86,49 @@ void BPF_STRUCT_OPS(ml_collect_enqueue, struct task_struct *p, u64 enq_flags)
 {
 	pid_t pid = p->pid;
 	struct task_sched_data * tsk_ptr = bpf_map_lookup_elem(&task_data, &pid);
+	// TODO: Check to see if putting this block of code after the block
+	// that creates the entry in the hash_map is appropriate (I'm thinking
+	// perhaps that this data should always be collected, regardless of if
+	// it is new or now)
     if (tsk_ptr != NULL) { // already aware of this task (pid)
 		#ifdef PRINT_DEBUG
 		bpf_printk("Found a pid that is already accounted for\n");
 		#endif
 		// update data
+		// Deadline Attributes
+		if (p->delays) {
+			tsk_ptr->blkio_start = p->delays->blkio_start;
+			tsk_ptr->blkio_delay = p->delays->blkio_delay;
+			tsk_ptr->swapin_delay = p->delays->swapin_delay;
+			tsk_ptr->blkio_count = p->delays->blkio_count;
+			tsk_ptr->swapin_count = p->delays->swapin_count;
+			tsk_ptr->freepages_start = p->delays->freepages_start;
+			tsk_ptr->freepages_delay = p->delays->freepages_delay;
+			tsk_ptr->thrashing_start = p->delays->thrashing_start;
+			tsk_ptr->thrashing_delay = p->delays->thrashing_delay;
+			tsk_ptr->freepages_count = p->delays->freepages_count;
+			tsk_ptr->thrashing_count = p->delays->thrashing_count;
+		} else {
+			tsk_ptr->blkio_start = 999;
+		}
+		tsk_ptr->stack_refcount = p->stack_refcount.refs.counter;
+
+		// Scheduler statistics counters
+		tsk_ptr->wait_start = p->stats.wait_start;
+		tsk_ptr->wait_max = p->stats.wait_max;
+		tsk_ptr->wait_count = p->stats.wait_count;
+		tsk_ptr->wait_sum = p->stats.wait_sum;
+		tsk_ptr->iowait_count = p->stats.iowait_count;
+		tsk_ptr->iowait_sum = p->stats.iowait_sum;
+		tsk_ptr->sleep_start = p->stats.sleep_start;
+		tsk_ptr->sleep_max = p->stats.sleep_max;
+		tsk_ptr->sum_sleep_runtime = p->stats.sum_sleep_runtime;
+		tsk_ptr->block_start = p->stats.block_start;
+		tsk_ptr->block_max = p->stats.block_max;
+		tsk_ptr->run_delay = p->sched_info.run_delay;
+		tsk_ptr->last_arrival = p->sched_info.last_arrival;
+		tsk_ptr->last_queued = p->sched_info.last_queued;
+
 		tsk_ptr->nr_migrations = p->se.nr_migrations;
 		tsk_ptr->vruntime = p->se.vruntime;
 		//bpf_printk("Min flt: %u\n", p->min_flt);
