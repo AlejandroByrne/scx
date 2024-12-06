@@ -70,6 +70,11 @@ static void print_task_stats (struct task_sched_data * tsk_ptr) {
 	printf("MIN_FLT: %u, MAJ_FLT: %u, TOTAL_VM: %u, MAP_COUNT: %u, HIWATER_RSS: %u\n", tsk_ptr->min_flt, tsk_ptr->maj_flt, tsk_ptr->total_vm, tsk_ptr->map_count, tsk_ptr->hiwater_rss);
 	printf("----------       CPU Stats       ------------\n");
 	printf("NUMA_FLTS: %lu, \n", tsk_ptr->total_numa_faults);
+	printf("----------       Deadline Attributes       ------------\n");
+	printf("BLKIO_START: %lu, BLKIO_DELAY: %lu, SWAPIN_DELAY: %lu, BLKIO_CNT: %u\n", tsk_ptr->blkio_start, tsk_ptr->blkio_delay, tsk_ptr->swapin_delay, tsk_ptr->blkio_count);
+	printf("SWAPIN_CNT: %u, FREEPAGES_START: %lu, FREEPAGES_DELAY: %lu\n", tsk_ptr->swapin_count, tsk_ptr->freepages_start, tsk_ptr->freepages_delay);
+	printf("THRASHING_CNT: %lu, THRASHING_DELAY: %lu\n", tsk_ptr->thrashing_start, tsk_ptr->thrashing_delay);
+	printf("FREEPAGES_CNT: %u, THRASHING_CNT: %u\n", tsk_ptr->freepages_count, tsk_ptr->thrashing_count);
 	printf("---------------------------------------------\n\n");
 }
 
