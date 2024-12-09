@@ -134,8 +134,8 @@ void BPF_STRUCT_OPS(ml_collect_enqueue, struct task_struct *p, u64 enq_flags)
 		tsk_ptr->last_queued = p->sched_info.last_queued;
 
 		// TODO: TEST THESE NEXT 2 LINES (SHOULD WORK IN THEORY)
-		tsk_ptr->weight = p->se.load_weight.weight;
-		tsk_ptr->inv_weight = p->se.load_weight.inv_weight
+		tsk_ptr->weight = p->se.load.weight;
+		tsk_ptr->inv_weight = p->se.load.inv_weight;
 
 		tsk_ptr->nr_migrations = p->se.nr_migrations;
 		tsk_ptr->vruntime = p->se.vruntime;

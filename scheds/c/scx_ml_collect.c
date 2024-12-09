@@ -13,6 +13,7 @@
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
 #include <scx/common.h>
+#include <stddef.h>
 #include "task_sched_data.h"
 #include "scx_ml_collect.bpf.skel.h"
 
